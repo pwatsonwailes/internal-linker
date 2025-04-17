@@ -1,6 +1,4 @@
-// Simple LDA-inspired topic modeling with GPU acceleration
-import { gpuManager } from './gpuManager';
-
+// Simple LDA-inspired topic modeling without GPU acceleration
 export class TopicModel {
   private topics: Map<string, Set<string>>;
   private wordTopicScores: Map<string, Map<string, number>>;
@@ -11,8 +9,6 @@ export class TopicModel {
     documentTopics: Map<string, Set<string>>;
     modelState: Map<string, any>;
   };
-  private scoreKernel: any;
-  private topicAssignmentKernel: any;
 
   constructor(numTopics: number = 7) {
     this.topics = new Map();
@@ -25,45 +21,6 @@ export class TopicModel {
     // Initialize topics
     for (let i = 0; i < numTopics; i++) {
       this.topics.set(`topic_${i}`, new Set());
-    }
-
-    try {
-      if (gpuManager.isAvailable()) {
-        // Create kernel for parallel topic score computation
-        this.scoreKernel = gpuManager.createKernel(function(
-          wordFreqs: number[],
-          cowordFreqs: number[],
-          numWords: number
-        ) {
-          const i = this.thread.x;
-          if (i < numWords) {
-            return Math.log(1 + (wordFreqs[i] * cowordFreqs[i]));
-          }
-          return 0;
-        })
-        .setOutput([1024]); // Adjust based on maximum vocabulary size
-
-        // Create kernel for parallel topic assignment
-        this.topicAssignmentKernel = gpuManager.createKernel(function(
-          wordScores: number[],
-          topicScores: number[],
-          threshold: number,
-          numTopics: number
-        ) {
-          const topicIndex = this.thread.x;
-          if (topicIndex < numTopics) {
-            const score = wordScores[topicIndex] * topicScores[topicIndex];
-            return score > threshold ? 1 : 0;
-          }
-          return 0;
-        })
-        .setOutput([numTopics]);
-
-        gpuManager.registerKernel('topicScore', this.scoreKernel);
-        gpuManager.registerKernel('topicAssignment', this.topicAssignmentKernel);
-      }
-    } catch (error) {
-      console.warn('Failed to initialize topic modeling GPU kernels:', error);
     }
   }
 
@@ -88,42 +45,17 @@ export class TopicModel {
       const uniqueWords = new Set(doc);
       const wordScores = new Map<string, number>();
 
-      try {
-        if (this.scoreKernel) {
-          const wordFreqs = Array.from(uniqueWords).map(word => wordFreq.get(word) || 0);
-          const cowordFreqs = Array.from(uniqueWords).map(word => 
-            Array.from(uniqueWords).map(coword => wordFreq.get(coword) || 0)
-          );
-
-          // Use GPU to calculate word scores in parallel
-          for (let i = 0; i < uniqueWords.size; i++) {
-            const scores = this.scoreKernel(
-              wordFreqs,
-              cowordFreqs[i],
-              uniqueWords.size
-            ) as number[];
-            
-            const totalScore = scores.reduce((a, b) => a + b, 0);
-            const word = Array.from(uniqueWords)[i];
-            wordScores.set(word, totalScore);
+      uniqueWords.forEach(word => {
+        let score = 0;
+        uniqueWords.forEach(coword => {
+          if (word !== coword) {
+            const freq1 = wordFreq.get(word) || 0;
+            const freq2 = wordFreq.get(coword) || 0;
+            score += Math.log(1 + (freq1 * freq2));
           }
-        } else {
-          throw new Error('GPU kernel not available');
-        }
-      } catch (error) {
-        // CPU fallback
-        uniqueWords.forEach(word => {
-          let score = 0;
-          uniqueWords.forEach(coword => {
-            if (word !== coword) {
-              const freq1 = wordFreq.get(word) || 0;
-              const freq2 = wordFreq.get(coword) || 0;
-              score += Math.log(1 + (freq1 * freq2));
-            }
-          });
-          wordScores.set(word, score);
         });
-      }
+        wordScores.set(word, score);
+      });
 
       const sortedWords = Array.from(uniqueWords)
         .sort((a, b) => (wordScores.get(b) || 0) - (wordScores.get(a) || 0))
@@ -161,39 +93,16 @@ export class TopicModel {
       const scores = Array.from(topicScores.entries());
       const maxScore = Math.max(...scores.map(([_, score]) => score));
       
-      try {
-        if (this.topicAssignmentKernel) {
-          const wordScores = scores.map(([_, score]) => score);
-          const threshold = maxScore * this.topicThreshold;
-          
-          const assignments = this.topicAssignmentKernel(
-            wordScores,
-            Array(scores.length).fill(1),
-            threshold,
-            scores.length
-          ) as number[];
-          
-          assignments.forEach((assigned, index) => {
-            if (assigned === 1 && scores[index][1] >= this.minTopicScore) {
-              this.topics.get(scores[index][0])?.add(word);
-            }
-          });
-        } else {
-          throw new Error('GPU kernel not available');
-        }
-      } catch (error) {
-        // CPU fallback
-        const significantScores = scores
-          .filter(([_, score]) => score > maxScore * this.topicThreshold)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 2);
+      const significantScores = scores
+        .filter(([_, score]) => score > maxScore * this.topicThreshold)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 2);
 
-        significantScores.forEach(([topic, score]) => {
-          if (score >= this.minTopicScore) {
-            this.topics.get(topic)?.add(word);
-          }
-        });
-      }
+      significantScores.forEach(([topic, score]) => {
+        if (score >= this.minTopicScore) {
+          this.topics.get(topic)?.add(word);
+        }
+      });
     });
   }
 
@@ -238,7 +147,7 @@ export class TopicModel {
       }
     });
 
-    Array .from(topicScores.entries())
+    Array.from(topicScores.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, this.maxTopicsPerDocument)
       .forEach(([topic, score]) => {

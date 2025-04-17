@@ -1,6 +1,4 @@
 // MinHash implementation for Locality-Sensitive Hashing (LSH)
-import { gpuManager } from './gpuManager';
-
 export class MinHash {
   private numHashes: number;
   private hashSeeds: Uint32Array;
@@ -8,40 +6,12 @@ export class MinHash {
   private bands: number;
   private buckets: Map<string, Set<number>> = new Map();
   private readonly prime: number = 4294967311; // First prime larger than 2^32
-  private hashKernel: any;
 
   constructor(numHashes: number, bands: number = 20) {
     this.numHashes = numHashes;
     this.bands = bands;
     this.hashSeeds = new Uint32Array(numHashes);
     this.initializeHashSeeds();
-    
-    try {
-      if (gpuManager.isAvailable()) {
-        // Create kernel for parallel hash computation
-        this.hashKernel = gpuManager.createKernel(function(
-          term: number[],
-          seeds: number[],
-          prime: number
-        ) {
-          const i = this.thread.x;
-          if (i < this.constants.numHashes) {
-            let hash = seeds[i];
-            for (let j = 0; j < this.constants.termLength; j++) {
-              hash = (hash * 31 + term[j]) % prime;
-            }
-            return hash >>> 0;
-          }
-          return 0;
-        })
-        .setConstants({ numHashes: numHashes, termLength: 256 })
-        .setOutput([numHashes]);
-
-        gpuManager.registerKernel('minHash', this.hashKernel);
-      }
-    } catch (error) {
-      console.warn('Failed to initialize MinHash GPU kernel:', error);
-    }
   }
 
   private initializeHashSeeds(): void {
@@ -66,30 +36,14 @@ export class MinHash {
     signature.fill(Infinity);
 
     for (const term of terms) {
-      try {
-        if (this.hashKernel) {
-          const termNumbers = this.termToNumbers(term);
-          const hashes = this.hashKernel(
-            termNumbers,
-            Array.from(this.hashSeeds),
-            this.prime
-          ) as number[];
-          
-          for (let i = 0; i < this.numHashes; i++) {
-            signature[i] = Math.min(signature[i], hashes[i]);
-          }
-        } else {
-          throw new Error('GPU kernel not available');
+      const termNumbers = this.termToNumbers(term);
+      
+      for (let i = 0; i < this.numHashes; i++) {
+        let hash = this.hashSeeds[i];
+        for (let j = 0; j < termNumbers.length; j++) {
+          hash = (hash * 31 + termNumbers[j]) % this.prime;
         }
-      } catch (error) {
-        // CPU fallback
-        for (let i = 0; i < this.numHashes; i++) {
-          let hash = this.hashSeeds[i];
-          for (let j = 0; j < term.length; j++) {
-            hash = (hash * 31 + term.charCodeAt(j)) % this.prime;
-          }
-          signature[i] = Math.min(signature[i], hash >>> 0);
-        }
+        signature[i] = Math.min(signature[i], hash >>> 0);
       }
     }
 
@@ -113,30 +67,14 @@ export class MinHash {
     signature.fill(Infinity);
 
     for (const term of terms) {
-      try {
-        if (this.hashKernel) {
-          const termNumbers = this.termToNumbers(term);
-          const hashes = this.hashKernel(
-            termNumbers,
-            Array.from(this.hashSeeds),
-            this.prime
-          ) as number[];
-          
-          for (let i = 0; i < this.numHashes; i++) {
-            signature[i] = Math.min(signature[i], hashes[i]);
-          }
-        } else {
-          throw new Error('GPU kernel not available');
+      const termNumbers = this.termToNumbers(term);
+      
+      for (let i = 0; i < this.numHashes; i++) {
+        let hash = this.hashSeeds[i];
+        for (let j = 0; j < termNumbers.length; j++) {
+          hash = (hash * 31 + termNumbers[j]) % this.prime;
         }
-      } catch (error) {
-        // CPU fallback
-        for (let i = 0; i < this.numHashes; i++) {
-          let hash = this.hashSeeds[i];
-          for (let j = 0; j < term.length; j++) {
-            hash = (hash * 31 + term.charCodeAt(j)) % this.prime;
-          }
-          signature[i] = Math.min(signature[i], hash >>> 0);
-        }
+        signature[i] = Math.min(signature[i], hash >>> 0);
       }
     }
 

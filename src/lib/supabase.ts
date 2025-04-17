@@ -6,22 +6,28 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
+const BATCH_SIZE = 50; // Process URLs in smaller batches
+
 export async function storeUrlData(
   url: string,
   title: string,
   body: string,
   preprocessedData: any
 ) {
+  // Ensure body is never null
+  const safeBody = body || '';
+  const safeTitle = title || '';
+  
   const { data, error } = await supabase
     .from('urls')
     .upsert({
       url,
-      title,
-      body,
+      title: safeTitle,
+      body: safeBody,
       preprocessed_data: preprocessedData
     })
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
   return data;
@@ -32,9 +38,9 @@ export async function getPreprocessedUrl(url: string) {
     .from('urls')
     .select('*')
     .eq('url', url)
-    .single();
+    .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') throw error;
+  if (error) throw error;
   return data;
 }
 
@@ -62,9 +68,9 @@ export async function getSimilarityResults(sourceUrl: string) {
       .from('urls')
       .select('id')
       .eq('url', sourceUrl)
-      .single();
+      .maybeSingle();
 
-    if (sourceError) return null;
+    if (sourceError || !sourceUrlData) return null;
 
     const { data, error } = await supabase
       .from('similarity_results')
@@ -96,80 +102,86 @@ export async function getSimilarityResults(sourceUrl: string) {
 
 export async function batchGetSimilarityResults(sourceUrls: string[]) {
   try {
-    const { data: urlData, error: urlError } = await supabase
-      .from('urls')
-      .select('id, url')
-      .in('url', sourceUrls);
-
-    if (urlError) {
-      console.error('Error fetching URL data:', urlError);
-      return new Map();
-    }
-
-    const urlMap = new Map(urlData?.map(u => [u.url, u.id]) || []);
-    const sourceIds = urlData?.map(u => u.id) || [];
-
-    if (sourceIds.length === 0) {
-      return new Map();
-    }
-
-    const { data: similarityData, error: similarityError } = await supabase
-      .from('similarity_results')
-      .select(`
-        source_url_id,
-        similarity_score,
-        suggested_anchor,
-        source:urls!similarity_results_source_url_id_fkey(url, title),
-        target:urls!target_url_id(url, title)
-      `)
-      .in('source_url_id', sourceIds)
-      .order('similarity_score', { ascending: false });
-
-    if (similarityError) {
-      console.error('Error fetching similarity results:', similarityError);
-      return new Map();
-    }
-
-    const resultMap = new Map<string, {
+    // Process in batches to avoid large queries
+    const results = new Map<string, {
       url: string;
       title: string;
       similarity: number;
       suggestedAnchor: string;
     }[]>();
 
-    similarityData?.forEach(result => {
-      const sourceUrl = result.source.url;
-      if (!resultMap.has(sourceUrl)) {
-        resultMap.set(sourceUrl, []);
-      }
+    for (let i = 0; i < sourceUrls.length; i += BATCH_SIZE) {
+      const batch = sourceUrls.slice(i, i + BATCH_SIZE);
       
-      const matches = resultMap.get(sourceUrl)!;
-      if (matches.length < 5) {
-        matches.push({
-          url: result.target.url,
-          title: result.target.title,
-          similarity: result.similarity_score,
-          suggestedAnchor: result.suggested_anchor
-        });
-      }
-    });
+      const { data: urlData, error: urlError } = await supabase
+        .from('urls')
+        .select('id, url')
+        .in('url', batch);
 
-    return resultMap;
+      if (urlError) {
+        console.error('Error fetching URL batch data:', urlError);
+        continue;
+      }
+
+      if (!urlData?.length) continue;
+
+      const urlMap = new Map(urlData.map(u => [u.url, u.id]));
+      const sourceIds = urlData.map(u => u.id);
+
+      const { data: similarityData, error: similarityError } = await supabase
+        .from('similarity_results')
+        .select(`
+          source_url_id,
+          similarity_score,
+          suggested_anchor,
+          source:urls!similarity_results_source_url_id_fkey(url, title),
+          target:urls!target_url_id(url, title)
+        `)
+        .in('source_url_id', sourceIds)
+        .order('similarity_score', { ascending: false });
+
+      if (similarityError) {
+        console.error('Error fetching similarity batch results:', similarityError);
+        continue;
+      }
+
+      // Process results for this batch
+      similarityData?.forEach(result => {
+        const sourceUrl = result.source.url;
+        if (!results.has(sourceUrl)) {
+          results.set(sourceUrl, []);
+        }
+        
+        const matches = results.get(sourceUrl)!;
+        if (matches.length < 5) {
+          matches.push({
+            url: result.target.url,
+            title: result.target.title,
+            similarity: result.similarity_score,
+            suggestedAnchor: result.suggested_anchor
+          });
+        }
+      });
+
+      // Small delay between batches
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    return results;
   } catch (error) {
     console.error('Error batch getting similarity results:', error);
     return new Map();
   }
 }
 
-// Enhanced target URL list functions
 export async function getTargetUrlList(id: string) {
   const { data, error } = await supabase
     .from('target_url_lists')
     .select('*')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') throw error;
+  if (error) throw error;
   return data;
 }
 
@@ -186,13 +198,22 @@ export async function createTargetUrlList(urls: string[]) {
     .from('target_url_lists')
     .insert({ urls, hash })
     .select('id')
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Failed to create target URL list');
   return data.id;
 }
 
 export async function getTargetUrlListId(urls: string[]) {
+  // Process in batches to avoid large query
+  const batchSize = 1000;
+  const urlBatches = [];
+  
+  for (let i = 0; i < urls.length; i += batchSize) {
+    urlBatches.push(urls.slice(i, i + batchSize));
+  }
+
   const hash = await crypto.subtle.digest(
     'SHA-256',
     new TextEncoder().encode(urls.join('|'))
@@ -205,7 +226,7 @@ export async function getTargetUrlListId(urls: string[]) {
     .from('target_url_lists')
     .select('id')
     .eq('hash', hash)
-    .single();
+    .maybeSingle();
 
   if (existingList) {
     return existingList.id;
@@ -215,24 +236,41 @@ export async function getTargetUrlListId(urls: string[]) {
     .from('target_url_lists')
     .insert({ urls, hash })
     .select('id')
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Failed to create target URL list');
   return newList.id;
 }
 
 export async function getProcessedSourceUrls(sourceUrls: string[], targetListId: string) {
-  const { data, error } = await supabase
-    .from('source_url_processing_status')
-    .select('source_url, processed')
-    .in('source_url', sourceUrls)
-    .eq('target_list_id', targetListId);
+  const results = new Map<string, boolean>();
+  
+  // Process in batches
+  for (let i = 0; i < sourceUrls.length; i += BATCH_SIZE) {
+    const batch = sourceUrls.slice(i, i + BATCH_SIZE);
+    
+    const { data, error } = await supabase
+      .from('source_url_processing_status')
+      .select('source_url, processed')
+      .in('source_url', batch)
+      .eq('target_list_id', targetListId);
 
-  if (error) throw error;
+    if (error) {
+      console.error('Error fetching processed status batch:', error);
+      continue;
+    }
 
-  return new Map(
-    data.map(({ source_url, processed }) => [source_url, processed])
-  );
+    // Update results map with this batch
+    data?.forEach(({ source_url, processed }) => {
+      results.set(source_url, processed);
+    });
+
+    // Small delay between batches
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
+  return results;
 }
 
 export async function markSourceUrlProcessed(sourceUrl: string, targetListId: string) {
@@ -255,9 +293,9 @@ export async function hasProcessedSourceUrl(sourceUrl: string, targetUrls: strin
       .select('processed')
       .eq('source_url', sourceUrl)
       .eq('target_list_id', targetListId)
-      .single();
+      .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') throw error;
+    if (error) throw error;
     return data?.processed || false;
   } catch (error) {
     console.error('Error checking processed source URL:', error);

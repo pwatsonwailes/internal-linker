@@ -31,18 +31,29 @@ export function CSVUpload({ onUpload, label }: CSVUploadProps) {
           // Get the data rows (skip header row)
           const rows = results.data.slice(1) as string[][];
 
-          // Validate that each row has exactly 2 elements
+          // Validate that each row has exactly 2 elements and non-empty values
           const validRows = rows.filter(row => {
             if (row.length !== 2) {
-              console.warn('Invalid row:', row);
+              console.warn('Invalid row length:', row);
               return false;
             }
-            // Check that no element is empty
-            return row.every(cell => cell.trim().length > 0);
+            // Check that no element is empty and URL is valid
+            const [url, body] = row;
+            if (!url?.trim() || !body?.trim()) {
+              console.warn('Empty URL or body in row:', row);
+              return false;
+            }
+            try {
+              new URL(url.trim());
+              return true;
+            } catch {
+              console.warn('Invalid URL in row:', row);
+              return false;
+            }
           });
 
           if (validRows.length === 0) {
-            throw new Error('No valid data found in CSV. Each row must have a URL and body text.');
+            throw new Error('No valid data found in CSV. Each row must have a valid URL and non-empty body text.');
           }
 
           // Set final progress and call onUpload

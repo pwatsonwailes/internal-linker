@@ -21,11 +21,25 @@ export async function preprocessUrl(
   [url, title, body]: string[]
 ): Promise<{ id: string; doc: string[]; url: string; title: string; body: string }> {
   try {
+    // Ensure we have valid strings for title and body
+    const safeTitle = title || '';
+    const safeBody = body || '';
+    
+    if (!url) {
+      throw new Error('URL is required for preprocessing');
+    }
+
     // Check cache first
     if (urlCache.has(url)) {
       const cached = urlCache.get(url)!;
       if (cached.preprocessed) {
-        return { id: cached.id, doc: cached.doc, url, title, body };
+        return { 
+          id: cached.id, 
+          doc: cached.doc, 
+          url, 
+          title: safeTitle, 
+          body: safeBody 
+        };
       }
     }
 
@@ -34,22 +48,32 @@ export async function preprocessUrl(
     if (cached?.preprocessed_data) {
       const doc = cached.preprocessed_data.tokens;
       urlCache.set(url, { id: cached.id, doc, preprocessed: true });
-      return { id: cached.id, doc, url, title, body };
+      return { 
+        id: cached.id, 
+        doc, 
+        url, 
+        title: cached.title || safeTitle, 
+        body: cached.body || safeBody 
+      };
     }
 
     // Process new URL
-    const doc = preprocessText(`${title} ${body}`);
+    const doc = preprocessText(`${safeTitle} ${safeBody}`);
     
     // Store in database
-    const { id } = await storeUrlData(url, title, body, {
+    const result = await storeUrlData(url, safeTitle, safeBody, {
       tokens: doc,
-      language: detectLanguage(`${title} ${body}`)
+      language: detectLanguage(`${safeTitle} ${safeBody}`)
     });
 
+    if (!result) {
+      throw new Error('Failed to store URL data');
+    }
+
     // Update cache
-    urlCache.set(url, { id, doc, preprocessed: true });
+    urlCache.set(url, { id: result.id, doc, preprocessed: true });
     
-    return { id, doc, url, title, body };
+    return { id: result.id, doc, url, title: safeTitle, body: safeBody };
   } catch (error) {
     console.error(`Error preprocessing URL ${url}:`, error);
     throw error;

@@ -1,207 +1,153 @@
-import { gpuManager } from './gpuManager';
-
 const vectorCache = new Map<string, Float64Array>();
 const termIndexCache = new Map<string, number>();
 let cachedUniqueTerms: string[] | null = null;
+let cachedIdfValues = new Map<string, number>();
+let cachedAllDocsHash: string | null = null;
 
-// Fallback CPU implementations
-function cpuDotProduct(a: number[], b: number[]): number {
-  return a.reduce((sum, val, i) => sum + val * b[i], 0);
-}
-
-function cpuVectorNorm(vec: number[]): number {
-  return Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0));
-}
-
-// Initialize kernels
-let vectorDotProductKernel: any = null;
-let vectorNormKernel: any = null;
-let tfidfKernel: any = null;
-let batchSimilarityKernel: any = null;
-
-try {
-  if (gpuManager.isAvailable()) {
-    vectorDotProductKernel = gpuManager.createKernel(function(a: number[], b: number[]) {
-      let sum = 0;
-      for (let i = 0; i < this.constants.vectorLength; i++) {
-        sum += a[i] * b[i];
-      }
-      return sum;
-    })
-    .setConstants({ vectorLength: 1024 })
-    .setOutput([1]);
-
-    vectorNormKernel = gpuManager.createKernel(function(vec: number[]) {
-      let sum = 0;
-      for (let i = 0; i < this.constants.vectorLength; i++) {
-        sum += vec[i] * vec[i];
-      }
-      return Math.sqrt(sum);
-    })
-    .setConstants({ vectorLength: 1024 })
-    .setOutput([1]);
-
-    tfidfKernel = gpuManager.createKernel(function(
-      tf: number[],
-      idf: number[],
-      length: number
-    ) {
-      const i = this.thread.x;
-      if (i < length) {
-        return tf[i] * idf[i];
-      }
-      return 0;
-    })
-    .setOutput([1024]);
-
-    batchSimilarityKernel = gpuManager.createKernel(function(
-      source: number[],
-      targets: number[][],
-      vectorLength: number,
-      numTargets: number
-    ) {
-      const targetIndex = this.thread.x;
-      if (targetIndex < numTargets) {
-        let dotProduct = 0;
-        let normSource = 0;
-        let normTarget = 0;
-        
-        for (let i = 0; i < vectorLength; i++) {
-          dotProduct += source[i] * targets[targetIndex][i];
-          normSource += source[i] * source[i];
-          normTarget += targets[targetIndex][i] * targets[targetIndex][i];
-        }
-        
-        const magnitude = Math.sqrt(normSource) * Math.sqrt(normTarget);
-        return magnitude === 0 ? 0 : dotProduct / magnitude;
-      }
-      return 0;
-    })
-    .setOutput([1000]); // Adjust based on batch size
+export function clearVectorCache(fullClear: boolean = false): void {
+  vectorCache.clear();
+  if (fullClear) {
+    termIndexCache.clear();
+    cachedUniqueTerms = null;
+    cachedIdfValues.clear();
+    cachedAllDocsHash = null;
+    console.log("Performing full vector cache clear.");
+  } else {
+    console.log("Clearing only TF-IDF vector cache.");
   }
-} catch (error) {
-  console.warn('Failed to initialize GPU kernels:', error);
 }
 
 export function calculateTF(terms: string[]): Map<string, number> {
   const tf = new Map<string, number>();
+  const docLength = terms.length;
+  if (docLength === 0) return tf;
   terms.forEach(term => {
     tf.set(term, (tf.get(term) || 0) + 1);
   });
   return tf;
 }
 
-export function calculateIDF(docs: string[][], term: string): number {
-  const docsWithTerm = docs.filter(doc => doc.includes(term)).length;
-  return Math.log(docs.length / (1 + docsWithTerm));
-}
-
-export function getTermIndices(allDocs: string[][]): { terms: string[]; indices: Map<string, number> } {
-  if (cachedUniqueTerms) {
-    return { terms: cachedUniqueTerms, indices: termIndexCache };
+function calculateSingleIDF(allDocs: string[][], term: string): number {
+  if (cachedIdfValues.has(term)) {
+    return cachedIdfValues.get(term)!;
   }
-
-  const uniqueTerms = Array.from(new Set(allDocs.flat()));
-  uniqueTerms.forEach((term, index) => {
-    termIndexCache.set(term, index);
-  });
-  cachedUniqueTerms = uniqueTerms;
-
-  return { terms: uniqueTerms, indices: termIndexCache };
+  const docsWithTerm = allDocs.filter(doc => doc.includes(term)).length;
+  const idf = Math.log(allDocs.length / (1 + docsWithTerm));
+  cachedIdfValues.set(term, idf);
+  return idf;
 }
 
-export function calculateTFIDF(doc: string[], allDocs: string[][]): Float64Array {
+export function precomputeIDF(allDocs: string[][]): Map<string, number> {
+    console.log(`Precomputing IDF for ${allDocs.length} documents...`);
+    const docFrequencies = new Map<string, number>();
+    const uniqueTerms = new Set<string>();
+    allDocs.forEach(doc => {
+        const seenInDoc = new Set<string>();
+        doc.forEach(term => {
+            uniqueTerms.add(term);
+            if (!seenInDoc.has(term)) {
+                docFrequencies.set(term, (docFrequencies.get(term) || 0) + 1);
+                seenInDoc.add(term);
+            }
+        });
+    });
+
+    cachedUniqueTerms = Array.from(uniqueTerms).sort();
+    termIndexCache.clear();
+    cachedUniqueTerms.forEach((term, index) => {
+        termIndexCache.set(term, index);
+    });
+
+    cachedIdfValues.clear();
+    const numDocs = allDocs.length;
+    cachedUniqueTerms.forEach(term => {
+        const df = docFrequencies.get(term) || 0;
+        const idf = Math.log(numDocs / (1 + df));
+        cachedIdfValues.set(term, idf);
+    });
+    console.log(`Precomputed IDF for ${cachedUniqueTerms.length} unique terms.`);
+    cachedAllDocsHash = String(allDocs.length) + '|' + (allDocs[0]?.length || 0);
+    return cachedIdfValues;
+}
+
+export function getTermIndices(allDocs?: string[][]): { terms: string[]; indices: Map<string, number> } {
+  if (cachedUniqueTerms && termIndexCache.size > 0) {
+    return { terms: cachedUniqueTerms, indices: termIndexCache };
+  } else if (allDocs) {
+    console.warn("Term indices not precomputed, calculating on the fly.");
+    precomputeIDF(allDocs);
+    return { terms: cachedUniqueTerms!, indices: termIndexCache };
+  } else {
+    throw new Error("Cannot get term indices without precomputation or providing allDocs.");
+  }
+}
+
+export function calculateTFIDF(
+    doc: string[], 
+    allDocs?: string[][], 
+    precomputedIDF?: Map<string, number> 
+): Float64Array {
   const docKey = doc.join('|');
   if (vectorCache.has(docKey)) {
     return vectorCache.get(docKey)!;
   }
 
   const { terms, indices } = getTermIndices(allDocs);
-  const tfArray = new Float64Array(terms.length);
-  const idfArray = new Float64Array(terms.length);
-  
+  const idfValues = precomputedIDF || cachedIdfValues;
+
+  if (idfValues.size === 0 && allDocs) {
+    console.warn("IDF values not provided or precomputed, calculating on the fly.");
+    precomputeIDF(allDocs);
+  } else if (idfValues.size === 0 && !allDocs) {
+    throw new Error("IDF values not available. Must call precomputeIDF first or provide allDocs.");
+  }
+
+  const vector = new Float64Array(terms.length).fill(0);
   const tf = calculateTF(doc);
-  terms.forEach((term, i) => {
-    tfArray[i] = tf.get(term) || 0;
-    idfArray[i] = calculateIDF(allDocs, term);
-  });
 
-  let result: Float64Array;
-
-  try {
-    if (tfidfKernel) {
-      const gpuResult = tfidfKernel(Array.from(tfArray), Array.from(idfArray), terms.length) as number[];
-      result = new Float64Array(gpuResult);
-    } else {
-      result = new Float64Array(terms.length);
-      for (let i = 0; i < terms.length; i++) {
-        result[i] = tfArray[i] * idfArray[i];
-      }
-    }
-  } catch (error) {
-    console.warn('GPU computation failed, falling back to CPU:', error);
-    result = new Float64Array(terms.length);
-    for (let i = 0; i < terms.length; i++) {
-      result[i] = tfArray[i] * idfArray[i];
+  for (const [term, termFreq] of tf.entries()) {
+    if (indices.has(term)) {
+      const index = indices.get(term)!;
+      const idf = idfValues.get(term) || 0;
+      vector[index] = termFreq * idf;
     }
   }
 
-  vectorCache.set(docKey, result);
-  return result;
+  vectorCache.set(docKey, vector);
+  return vector;
 }
 
 export function cosineSimilarity(vecA: Float64Array, vecB: Float64Array): number {
-  const a = Array.from(vecA);
-  const b = Array.from(vecB);
-  
-  let dotProduct: number;
-  let normA: number;
-  let normB: number;
+  let dotProduct = 0.0;
+  let normA = 0.0;
+  let normB = 0.0;
+  const length = Math.min(vecA.length, vecB.length);
 
-  try {
-    if (vectorDotProductKernel && vectorNormKernel) {
-      dotProduct = vectorDotProductKernel(a, b)[0] as number;
-      normA = vectorNormKernel(a)[0] as number;
-      normB = vectorNormKernel(b)[0] as number;
-    } else {
-      dotProduct = cpuDotProduct(a, b);
-      normA = cpuVectorNorm(a);
-      normB = cpuVectorNorm(b);
-    }
-  } catch (error) {
-    console.warn('GPU computation failed, falling back to CPU:', error);
-    dotProduct = cpuDotProduct(a, b);
-    normA = cpuVectorNorm(a);
-    normB = cpuVectorNorm(b);
+  if (length === 0) return 0.0;
+
+  for (let i = 0; i < length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+    normA += vecA[i] * vecA[i];
+    normB += vecB[i] * vecB[i];
   }
+
+  const magnitude = Math.sqrt(normA) * Math.sqrt(normB);
   
-  const magnitude = normA * normB;
-  return magnitude === 0 ? 0 : dotProduct / magnitude;
+  if (magnitude === 0) {
+    return 0.0;
+  } else {
+    return Math.max(-1.0, Math.min(1.0, dotProduct / magnitude));
+  }
 }
 
-export function batchCosineSimilarity(sourceVec: Float64Array, targetVecs: Float64Array[]): number[] {
-  const source = Array.from(sourceVec);
-  const targets = targetVecs.map(vec => Array.from(vec));
-
-  try {
-    if (batchSimilarityKernel) {
-      return batchSimilarityKernel(
-        source,
-        targets,
-        sourceVec.length,
-        targetVecs.length
-      ) as number[];
-    }
-  } catch (error) {
-    console.warn('GPU batch similarity failed, falling back to CPU:', error);
-  }
-
-  // CPU fallback
+export function batchCosineSimilarity(
+  sourceVec: Float64Array,
+  targetVecs: Float64Array[]
+): number[] {
   return targetVecs.map(targetVec => cosineSimilarity(sourceVec, targetVec));
 }
 
-export function clearVectorCache(): void {
-  vectorCache.clear();
-  termIndexCache.clear();
-  cachedUniqueTerms = null;
+export function checkCorpusChanged(allDocs: string[][]): boolean {
+    const currentHash = String(allDocs.length) + '|' + (allDocs[0]?.length || 0);
+    return currentHash !== cachedAllDocsHash;
 }
