@@ -38,10 +38,18 @@ function calculateSingleIDF(allDocs: string[][], term: string): number {
 }
 
 export function precomputeIDF(allDocs: string[][]): Map<string, number> {
+    if (!Array.isArray(allDocs) || allDocs.length === 0) {
+        throw new Error('Invalid input: allDocs must be a non-empty array');
+    }
+
     console.log(`Precomputing IDF for ${allDocs.length} documents...`);
     const docFrequencies = new Map<string, number>();
     const uniqueTerms = new Set<string>();
+    
     allDocs.forEach(doc => {
+        if (!Array.isArray(doc)) {
+            throw new Error('Invalid document format: each document must be an array of terms');
+        }
         const seenInDoc = new Set<string>();
         doc.forEach(term => {
             uniqueTerms.add(term);
@@ -65,6 +73,7 @@ export function precomputeIDF(allDocs: string[][]): Map<string, number> {
         const idf = Math.log(numDocs / (1 + df));
         cachedIdfValues.set(term, idf);
     });
+    
     console.log(`Precomputed IDF for ${cachedUniqueTerms.length} unique terms.`);
     cachedAllDocsHash = String(allDocs.length) + '|' + (allDocs[0]?.length || 0);
     return cachedIdfValues;
@@ -87,6 +96,10 @@ export function calculateTFIDF(
     allDocs?: string[][], 
     precomputedIDF?: Map<string, number> 
 ): Float64Array {
+  if (!Array.isArray(doc)) {
+    throw new Error('Invalid input: doc must be an array of terms');
+  }
+
   const docKey = doc.join('|');
   if (vectorCache.has(docKey)) {
     return vectorCache.get(docKey)!;
@@ -118,14 +131,23 @@ export function calculateTFIDF(
 }
 
 export function cosineSimilarity(vecA: Float64Array, vecB: Float64Array): number {
+  if (!vecA || !vecB || !(vecA instanceof Float64Array) || !(vecB instanceof Float64Array)) {
+    throw new Error('Invalid input: vectors must be Float64Array instances');
+  }
+
+  if (vecA.length === 0 || vecB.length === 0) {
+    return 0.0;
+  }
+
+  if (vecA.length !== vecB.length) {
+    throw new Error(`Vector dimensions mismatch: ${vecA.length} vs ${vecB.length}`);
+  }
+
   let dotProduct = 0.0;
   let normA = 0.0;
   let normB = 0.0;
-  const length = Math.min(vecA.length, vecB.length);
 
-  if (length === 0) return 0.0;
-
-  for (let i = 0; i < length; i++) {
+  for (let i = 0; i < vecA.length; i++) {
     dotProduct += vecA[i] * vecB[i];
     normA += vecA[i] * vecA[i];
     normB += vecB[i] * vecB[i];
@@ -144,6 +166,14 @@ export function batchCosineSimilarity(
   sourceVec: Float64Array,
   targetVecs: Float64Array[]
 ): number[] {
+  if (!sourceVec || !(sourceVec instanceof Float64Array)) {
+    throw new Error('Invalid source vector');
+  }
+
+  if (!Array.isArray(targetVecs)) {
+    throw new Error('Invalid target vectors array');
+  }
+
   return targetVecs.map(targetVec => cosineSimilarity(sourceVec, targetVec));
 }
 
