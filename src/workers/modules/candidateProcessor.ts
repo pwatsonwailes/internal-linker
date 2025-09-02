@@ -7,9 +7,9 @@ import {
     clearVectorCache
 } from './vectorization'; 
 
-const CANDIDATE_BATCH_SIZE = 250;
-const SIMILARITY_THRESHOLD = 0.05;
-const MAX_CONCURRENT_BATCHES = 4;
+// Lowered threshold to catch more potential matches
+const SIMILARITY_THRESHOLD = 0.01;
+const MAX_MATCHES = 5;
 
 function findSuggestedAnchor(sourceText: string, targetText: string): string {
   const words = targetText.split(/\s+/).filter(w => w.length > 2);
@@ -34,8 +34,6 @@ export async function processCandidates(
   candidateTargetsMeta: ProcessedUrl[],
   candidateTargetVectors: Float64Array[]
 ): Promise<Array<SimilarityMatch | null>> {
-  const results: Array<SimilarityMatch | null> = [];
-
   // Validate inputs
   if (!source || !sourceVector || !Array.isArray(candidateIndices) || !Array.isArray(candidateTargetsMeta) || !Array.isArray(candidateTargetVectors)) {
     console.error("[Worker][processCandidates] Invalid input parameters:", {
@@ -78,30 +76,57 @@ export async function processCandidates(
   console.log(`[Worker][processCandidates] Calculating similarity for ${candidateIndices.length} candidates against source ${source.url}`);
 
   try {
+    // Log some sample vectors for debugging
+    console.log('[Worker][processCandidates] Sample vector values:', {
+      sourceVector: Array.from(sourceVector.slice(0, 5)),
+      targetVector: Array.from(validTargetVectors[0].slice(0, 5))
+    });
+
     const similarities = batchCosineSimilarity(sourceVector, validTargetVectors);
+    
+    // Store all matches with their similarity scores
+    const allMatches: SimilarityMatch[] = [];
     
     for (let i = 0; i < candidateIndices.length; i++) {
       const similarity = similarities[i];
       const targetMetaData = candidateTargetsMeta[i];
       
+      // Include all matches above threshold
       if (similarity >= SIMILARITY_THRESHOLD) {
         const sourceFullText = `${source.title || ''} ${source.body || ''}`.trim();
         const targetFullText = `${targetMetaData.title || ''} ${targetMetaData.body || ''}`.trim();
         const suggestedAnchor = findSuggestedAnchor(sourceFullText, targetFullText);
 
-        results.push({
+        allMatches.push({
           url: targetMetaData.url,
           title: targetMetaData.title,
           similarity: similarity,
           suggestedAnchor: suggestedAnchor,
+          topics: [] // Topics will be computed separately if needed
         });
       }
     }
+
+    // Sort matches by similarity score and take top matches
+    const topMatches = allMatches
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, MAX_MATCHES);
+
+    console.log(`[Worker][processCandidates] Found ${allMatches.length} matches above threshold, returning top ${topMatches.length}`);
+    
+    // Log similarity distribution for debugging
+    if (allMatches.length > 0) {
+      const similarities = allMatches.map(m => m.similarity);
+      console.log('Similarity score distribution:', {
+        min: Math.min(...similarities),
+        max: Math.max(...similarities),
+        avg: similarities.reduce((a, b) => a + b, 0) / similarities.length
+      });
+    }
+
+    return topMatches;
   } catch (error) {
     console.error(`[Worker][processCandidates] Error during similarity calculation:`, error);
-    throw error; // Re-throw to ensure proper error handling up the chain
+    throw error;
   }
-
-  console.log(`[Worker][processCandidates] Finished processing candidates. Found ${results.filter(r => r !== null).length} potential matches above threshold.`);
-  return results;
 }

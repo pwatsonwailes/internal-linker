@@ -21,9 +21,17 @@ export function calculateTF(terms: string[]): Map<string, number> {
   const tf = new Map<string, number>();
   const docLength = terms.length;
   if (docLength === 0) return tf;
+  
+  // Count term frequencies
   terms.forEach(term => {
     tf.set(term, (tf.get(term) || 0) + 1);
   });
+
+  // Normalize term frequencies by document length
+  tf.forEach((value, key) => {
+    tf.set(key, value / docLength);
+  });
+
   return tf;
 }
 
@@ -32,7 +40,7 @@ function calculateSingleIDF(allDocs: string[][], term: string): number {
     return cachedIdfValues.get(term)!;
   }
   const docsWithTerm = allDocs.filter(doc => doc.includes(term)).length;
-  const idf = Math.log(allDocs.length / (1 + docsWithTerm));
+  const idf = Math.log((allDocs.length + 1) / (docsWithTerm + 1)) + 1; // Smoothed IDF
   cachedIdfValues.set(term, idf);
   return idf;
 }
@@ -70,7 +78,8 @@ export function precomputeIDF(allDocs: string[][]): Map<string, number> {
     const numDocs = allDocs.length;
     cachedUniqueTerms.forEach(term => {
         const df = docFrequencies.get(term) || 0;
-        const idf = Math.log(numDocs / (1 + df));
+        // Smoothed IDF calculation
+        const idf = Math.log((numDocs + 1) / (df + 1)) + 1;
         cachedIdfValues.set(term, idf);
     });
     
@@ -116,13 +125,26 @@ export function calculateTFIDF(
   }
 
   const vector = new Float64Array(terms.length).fill(0);
-  const tf = calculateTF(doc);
+  const tf = calculateTF(doc); // Now returns normalized TF values
 
   for (const [term, termFreq] of tf.entries()) {
     if (indices.has(term)) {
       const index = indices.get(term)!;
       const idf = idfValues.get(term) || 0;
       vector[index] = termFreq * idf;
+    }
+  }
+
+  // L2 normalize the vector
+  let norm = 0;
+  for (let i = 0; i < vector.length; i++) {
+    norm += vector[i] * vector[i];
+  }
+  norm = Math.sqrt(norm);
+  
+  if (norm > 0) {
+    for (let i = 0; i < vector.length; i++) {
+      vector[i] /= norm;
     }
   }
 
@@ -144,22 +166,12 @@ export function cosineSimilarity(vecA: Float64Array, vecB: Float64Array): number
   }
 
   let dotProduct = 0.0;
-  let normA = 0.0;
-  let normB = 0.0;
-
   for (let i = 0; i < vecA.length; i++) {
     dotProduct += vecA[i] * vecB[i];
-    normA += vecA[i] * vecA[i];
-    normB += vecB[i] * vecB[i];
   }
 
-  const magnitude = Math.sqrt(normA) * Math.sqrt(normB);
-  
-  if (magnitude === 0) {
-    return 0.0;
-  } else {
-    return Math.max(-1.0, Math.min(1.0, dotProduct / magnitude));
-  }
+  // Since vectors are already normalized, cosine similarity is just the dot product
+  return Math.max(-1.0, Math.min(1.0, dotProduct));
 }
 
 export function batchCosineSimilarity(

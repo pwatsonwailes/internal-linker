@@ -16,71 +16,12 @@ import { preprocessUrl, clearPreprocessingCache } from './modules/preprocessing'
 import { processBatchInParallel } from './modules/parallelProcessor';
 import { processCandidates } from './modules/candidateProcessor';
 import { checkMemory, clearMemory } from './modules/memoryManager';
-
-// Optimize batch sizes for better memory management
-const BATCH_SIZE = 10;
-const MIN_HASH_SIGNATURES = 50;
-const NUM_TOPICS = 5;
-const MAX_CANDIDATES_PER_SOURCE = 100;
-
-// Initialize optimization structures with improved memory management
-async function initializeStructures(
-  processedTargets: Array<{ doc: string[]; title: string; body: string; id: string }>,
-  updateProgress: (message: string, subProgress: number) => void
-) {
-  const minHash = new MinHash(MIN_HASH_SIGNATURES);
-  const bloomFilter = new BloomFilter(5000);
-  const invertedIndex = new InvertedIndex();
-  const prefixIndex = new PrefixIndex();
-  const topicModel = new TopicModel(NUM_TOPICS);
-
-  const totalTargets = processedTargets.length;
-  let processed = 0;
-  const batchSize = 50;
-
-  for (let i = 0; i < totalTargets; i += batchSize) {
-    const batch = processedTargets.slice(i, i + batchSize);
-    
-    for (const target of batch) {
-      if (!checkMemory()) {
-        clearMemory();
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-
-      const { doc } = target;
-      const termSet = new Set(doc);
-
-      minHash.addDocument(processed, termSet);
-      bloomFilter.add(doc.join(' '));
-      invertedIndex.addDocument(processed, doc);
-      prefixIndex.addDocument(processed, doc.join(' '));
-
-      processed++;
-      const progress = (processed / totalTargets) * 100;
-      updateProgress(
-        `Building optimization structures (${processed}/${totalTargets})...`,
-        progress
-      );
-    }
-
-    clearMemory();
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-
-  return {
-    minHash,
-    bloomFilter,
-    invertedIndex,
-    prefixIndex,
-    topicModel
-  };
-}
+import { calculateTFIDF, precomputeIDF, clearVectorCache } from './modules/vectorization';
 
 self.onmessage = async (e: MessageEvent) => {
   const { id, payload } = e.data;
 
   try {
-    // Initialize progress tracking
     const updateProgress = (message: string, progress: number = 0) => {
       self.postMessage({
         type: 'progress',
@@ -92,20 +33,68 @@ self.onmessage = async (e: MessageEvent) => {
 
     updateProgress('Starting similarity analysis...', 0);
 
-    // Process candidates
     const { source, targets, targetVectors, idfMap, vocabulary, targetListId } = payload;
-    const candidateIndices = Array.from({ length: targets.length }, (_, i) => i);
-    
-    // Log task details
+
+    if (!source || !targets || !targetVectors || !idfMap) {
+      console.error('[Worker] Missing required payload data:', {
+        hasSource: !!source,
+        hasTargets: !!targets,
+        hasTargetVectors: !!targetVectors,
+        hasIdfMap: !!idfMap
+      });
+      throw new Error('Missing required payload data');
+    }
+
     console.log(`[Worker] Processing task ${id} for source URL: ${source.url}`);
     console.log(`[Worker] Number of targets: ${targets.length}`);
+    console.log(`[Worker] IDF Map size: ${idfMap.size}`);
 
+    // Clear vector cache to ensure fresh calculations
+    clearVectorCache(true);
+
+    // Combine all documents for IDF calculation
+    const allDocs = targets.map(t => t.doc);
+    allDocs.push(source.doc);
+    
+    // Initialize the IDF values with all documents
+    const idfMapObj = precomputeIDF(allDocs);
+
+    // Calculate source vector using the updated IDF values
+    const sourceVector = calculateTFIDF(source.doc, allDocs, idfMapObj);
+
+    if (!sourceVector || sourceVector.length === 0) {
+      console.error('[Worker] Failed to calculate source vector:', {
+        sourceDocLength: source.doc.length,
+        idfMapSize: idfMapObj.size,
+        vectorLength: sourceVector?.length
+      });
+      throw new Error('Failed to calculate source vector');
+    }
+
+    console.log(`[Worker] Source vector calculated with length: ${sourceVector.length}`);
+
+    // Recalculate target vectors with updated vocabulary
+    updateProgress('Recalculating target vectors...', 30);
+    const updatedTargetVectors = targets.map((target, index) => {
+      const vector = calculateTFIDF(target.doc, allDocs, idfMapObj);
+      if ((index + 1) % 100 === 0) {
+        updateProgress(`Processed ${index + 1}/${targets.length} target vectors...`, 30 + (index / targets.length) * 40);
+      }
+      return vector;
+    });
+
+    console.log(`[Worker] Recalculated ${updatedTargetVectors.length} target vectors`);
+
+    // Process candidates with updated vectors
+    const candidateIndices = Array.from({ length: targets.length }, (_, i) => i);
+    
+    updateProgress('Calculating similarities...', 70);
     const results = await processCandidates(
       source,
-      source.vector,
+      sourceVector,
       candidateIndices,
       targets,
-      targetVectors
+      updatedTargetVectors
     );
 
     // Filter and sort results
@@ -115,10 +104,16 @@ self.onmessage = async (e: MessageEvent) => {
       .slice(0, 5);
 
     if (validMatches.length > 0) {
-      // Mark as processed in database
       await markSourceUrlProcessed(source.url, targetListId);
 
-      // Return results
+      // Log similarity scores for debugging
+      console.log('[Worker] Match similarity scores:', 
+        validMatches.map(m => ({
+          url: m.url,
+          similarity: m.similarity
+        }))
+      );
+
       self.postMessage({
         type: 'result',
         taskId: id,
@@ -143,7 +138,6 @@ self.onmessage = async (e: MessageEvent) => {
   } catch (error) {
     console.error(`[Worker] Error processing task ${id}:`, error);
     
-    // Enhanced error reporting
     const errorMessage = error instanceof Error 
       ? {
           message: error.message,
@@ -159,13 +153,12 @@ self.onmessage = async (e: MessageEvent) => {
       message: JSON.stringify(errorMessage, null, 2)
     });
   } finally {
-    // Cleanup
     clearPreprocessingCache();
     clearMemory();
+    clearVectorCache(true);
   }
 };
 
-// Handle worker errors
 self.onerror = (error: ErrorEvent) => {
   console.error('[Worker] Global error:', {
     message: error.message,
