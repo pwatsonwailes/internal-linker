@@ -69,7 +69,39 @@ export default function App() {
     
     try {
       workerPoolRef.current = new WorkerPool(new URL('./workers/dynamic.worker.js', import.meta.url).href, undefined, { type: 'module' }); 
-      addLog(`Worker pool initialized with ${workerPoolRef.current.getNumWorkers()} workers.`);
+      
+      // Test if workers are actually working by sending a test task
+      const testTask = {
+        id: 'test-task',
+        payload: { test: true }
+      };
+      
+      // Set a timeout to detect if workers are broken
+      const testTimeout = setTimeout(() => {
+        addLog('Workers appear to be broken (no response to test task). Falling back to main thread processing.', 'error');
+        workerPoolRef.current?.shutdown();
+        workerPoolRef.current = null;
+      }, 2000);
+      
+      // Try to submit a test task
+      try {
+        const testPromise = workerPoolRef.current.submitTask(testTask);
+        testPromise.then(() => {
+          clearTimeout(testTimeout);
+          addLog(`Worker pool initialized with ${workerPoolRef.current?.getNumWorkers()} workers.`);
+        }).catch(() => {
+          clearTimeout(testTimeout);
+          addLog('Workers failed test task. Falling back to main thread processing.', 'error');
+          workerPoolRef.current?.shutdown();
+          workerPoolRef.current = null;
+        });
+      } catch (error) {
+        clearTimeout(testTimeout);
+        addLog(`Failed to submit test task: ${error.message}. Falling back to main thread processing.`, 'error');
+        workerPoolRef.current?.shutdown();
+        workerPoolRef.current = null;
+      }
+      
     } catch (error) {
       addLog(`Failed to initialize worker pool: ${error.message}. Falling back to main thread processing.`, 'error');
       workerPoolRef.current = null;
@@ -182,13 +214,36 @@ export default function App() {
     try {
       addLog(`Processing ${source.url} in main thread...`);
       
-      // Simple similarity calculation (placeholder - would need full implementation)
-      const matches = targets.slice(0, 3).map((target, index) => ({
-        url: target.url,
-        similarity: Math.random() * 0.5 + 0.3, // Placeholder similarity
-        suggestedAnchor: target.title || target.url,
-        topics: []
-      }));
+      // Import the necessary modules for main thread processing
+      const { preprocessUrl } = await import('./workers/modules/preprocessing');
+      const { processCandidates } = await import('./workers/modules/candidateProcessor');
+      const { calculateTFIDF } = await import('./workers/modules/vectorization');
+      
+      // Calculate source vector
+      const sourceVector = await calculateTFIDF(source.doc);
+      
+      if (!sourceVector || sourceVector.length === 0) {
+        throw new Error('Failed to calculate source vector');
+      }
+      
+      // Process candidates
+      const candidateIndices = Array.from({ length: targets.length }, (_, i) => i);
+      
+      const results = await processCandidates(
+        source,
+        sourceVector,
+        candidateIndices,
+        targets,
+        targetVectors
+      );
+      
+      // Filter and sort results
+      const validMatches = results
+        .filter((m): m is NonNullable<typeof m> => m !== null)
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, 5);
+      
+      const matches = validMatches;
       
       const result: SimilarityResult = {
         sourceUrl: source.url,

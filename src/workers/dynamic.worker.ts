@@ -40,6 +40,16 @@ self.onmessage = async (e: MessageEvent) => {
   try {
     console.log(`[DynamicWorker] Processing task ${id}`);
     
+    // Handle test task first (before initialization)
+    if (payload?.test) {
+      self.postMessage({
+        type: 'result',
+        taskId: id,
+        result: { testResult: 'Worker is working!' }
+      });
+      return;
+    }
+    
     // Initialize if not already done
     if (!isInitialized) {
       await initializeWorker();
