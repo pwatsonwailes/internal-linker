@@ -18,19 +18,19 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'worker-deps': [
-            '@supabase/supabase-js',
-            './src/utils/bloomFilter',
-            './src/utils/invertedIndex',
-            './src/utils/minHash',
-            './src/utils/prefixIndex',
-            './src/utils/topicModeling'
-          ]
+          'vendor': ['react', 'react-dom'],
+          'supabase': ['@supabase/supabase-js'],
+          'utils': ['papaparse', 'lucide-react']
         }
+      },
+      external: (id) => {
+        // Don't bundle optional dependencies
+        return id.includes('@rollup/rollup-') && id.includes('-gnu');
       }
     },
-    target: 'esnext',
+    target: 'es2020',
     minify: 'esbuild',
-    sourcemap: true
+    sourcemap: false,
+    chunkSizeWarningLimit: 1000
   }
 });

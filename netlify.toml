@@ -1,11 +1,11 @@
 [build]
-  command = "npm run build"
+  command = "rm -rf node_modules package-lock.json && npm install --omit=optional --legacy-peer-deps && npm run build"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "18"
-  NPM_CONFIG_OPTIONAL = "false"
-  SKIP_OPTIONAL_DEPS = "true"
+  NPM_CONFIG_INCLUDE = "dev"
+  NPM_CONFIG_OMIT = "optional"
 
 [[redirects]]
   from = "/*"
