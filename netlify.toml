@@ -4,6 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  NPM_CONFIG_OPTIONAL = "false"
+  SKIP_OPTIONAL_DEPS = "true"
 
 [[redirects]]
   from = "/*"
