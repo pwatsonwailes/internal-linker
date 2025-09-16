@@ -85,7 +85,7 @@ export default function App() {
       
       // Try to submit a test task
       try {
-        const testPromise = workerPoolRef.current.submitTask(testTask);
+        const testPromise = workerPoolRef.current.addTask(testTask);
         testPromise.then(() => {
           clearTimeout(testTimeout);
           addLog(`Worker pool initialized with ${workerPoolRef.current?.getNumWorkers()} workers.`);
