@@ -12,10 +12,14 @@ export class WorkerPool {
     private taskQueue: Array<{ task: WorkerTask<any>; resolve: (value: WorkerResponse<any>) => void; reject: (reason?: any) => void }> = [];
     private taskPromises: Map<string, { resolve: (value: WorkerResponse<any>) => void; reject: (reason?: any) => void }> = new Map();
     private shuttingDown: boolean = false;
+    private workerScriptUrl: string | URL;
+    private workerOptions?: WorkerOptions;
 
     constructor(workerScriptUrl: string | URL, numWorkers?: number, workerOptions?: WorkerOptions) {
         const maxWorkers = numWorkers || navigator.hardwareConcurrency || 4;
         this.shuttingDown = false;
+        this.workerScriptUrl = workerScriptUrl;
+        this.workerOptions = workerOptions;
 
         console.log(`[WorkerPool] Initializing with ${maxWorkers} workers for script: ${workerScriptUrl}`);
 
@@ -189,21 +193,53 @@ export class WorkerPool {
         try {
             console.log(`[WorkerPool][${workerInfo.workerId}] Attempting worker restart...`);
             
-            const oldWorker = workerInfo.worker;
-            const oldUrl = (oldWorker as any)._url || oldWorker.constructor.name;
-            const oldOptions = (oldWorker as any)._options || { type: 'module' };
+            // Store original worker script URL from constructor
+            const originalWorkerScript = this.workerScriptUrl;
+            const originalWorkerOptions = this.workerOptions;
             
+            // Terminate old worker
+            const oldWorker = workerInfo.worker;
             oldWorker.terminate();
             
-            const newWorker = new Worker(oldUrl, oldOptions);
+            // Create new worker with same configuration
+            const newWorker = new Worker(originalWorkerScript, originalWorkerOptions);
             
-            newWorker.onmessage = (event: MessageEvent) => this.handleWorkerMessage(workerInfo, event);
+            // Set up event handlers
+            newWorker.onmessage = (event: MessageEvent) => {
+                try {
+                    this.handleWorkerMessage(workerInfo, event);
+                } catch (error) {
+                    console.error(`[WorkerPool][${workerInfo.workerId}] Error in restarted worker message handler:`, error);
+                    this.handleWorkerError(
+                        workerInfo,
+                        new ErrorEvent('error', {
+                            error,
+                            message: `Restarted worker message handler error: ${error.message}`
+                        }),
+                        workerInfo.taskId
+                    );
+                }
+            };
+            
             newWorker.onerror = (event: ErrorEvent) => {
                 const currentTaskId = workerInfo.taskId;
                 workerInfo.taskId = null;
                 this.handleWorkerError(workerInfo, event, currentTaskId);
             };
+
+            newWorker.onmessageerror = (event: MessageEvent) => {
+                const currentTaskId = workerInfo.taskId;
+                workerInfo.taskId = null;
+                this.handleWorkerError(
+                    workerInfo, 
+                    new ErrorEvent('messageerror', { 
+                        message: `Malformed message received in restarted worker for task ${currentTaskId || 'unknown'}`
+                    }),
+                    currentTaskId
+                );
+            };
             
+            // Update worker info
             workerInfo.worker = newWorker;
             workerInfo.isBusy = false;
             workerInfo.taskId = null;
@@ -266,24 +302,44 @@ export class WorkerPool {
     }
 
     public cancelAllTasks(): void {
-        console.log(`[WorkerPool] Cancelling all tasks. Queue length: ${this.taskQueue.length}`);
+        console.log(`[WorkerPool] Cancelling all tasks. Queue length: ${this.taskQueue.length}, Active tasks: ${this.taskPromises.size}`);
+        
+        // Clear task queue
         this.taskQueue = [];
 
+        // Reject all pending promises
         this.taskPromises.forEach(({ reject }, taskId) => {
             console.log(`[WorkerPool] Rejecting promise for task ${taskId} due to cancellation`);
             reject(new Error("Task cancelled by user."));
         });
         this.taskPromises.clear();
 
-        this.workers.forEach(workerInfo => {
-            if (workerInfo.isBusy) {
-                console.warn(`[WorkerPool][${workerInfo.workerId}] Terminating busy worker for task ${workerInfo.taskId} due to cancellation`);
+        // Handle busy workers
+        const busyWorkers = this.workers.filter(w => w.isBusy);
+        console.log(`[WorkerPool] Found ${busyWorkers.length} busy workers to handle`);
+
+        busyWorkers.forEach(workerInfo => {
+            const currentTaskId = workerInfo.taskId;
+            console.warn(`[WorkerPool][${workerInfo.workerId}] Terminating busy worker for task ${currentTaskId} due to cancellation`);
+            
+            // Terminate the worker
+            try {
                 workerInfo.worker.terminate();
-                this.restartWorker(workerInfo);
+            } catch (error) {
+                console.error(`[WorkerPool][${workerInfo.workerId}] Error terminating worker:`, error);
             }
+            
+            // Reset worker state immediately
             workerInfo.isBusy = false;
             workerInfo.taskId = null;
+            
+            // Restart worker asynchronously to avoid blocking
+            this.restartWorker(workerInfo).catch(error => {
+                console.error(`[WorkerPool][${workerInfo.workerId}] Error restarting worker after cancellation:`, error);
+            });
         });
+
+        console.log(`[WorkerPool] Task cancellation complete`);
     }
 
     public async shutdown(): Promise<void> {

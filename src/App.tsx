@@ -95,7 +95,7 @@ export default function App() {
       addLog('Cannot precompute: Target URLs missing.', 'error');
       return false;
     }
-    if (precomputedDataRef.current && !checkCorpusChanged(targetUrls)) {
+    if (precomputedDataRef.current && !(await checkCorpusChanged(targetUrls))) {
         addLog('Using previously precomputed target data.');
         return true;
     }
@@ -131,7 +131,7 @@ export default function App() {
       
       addLog('Precomputing IDF map...');
       const targetDocs = processedTargets.map(t => t.doc);
-      const idfMap = precomputeIDF(targetDocs);
+      const idfMap = await precomputeIDF(targetDocs);
       const { terms: vocabulary } = getTermIndices();
       addLog(`IDF map computed for ${vocabulary.length} unique terms.`);
       setProgress(50);
@@ -139,7 +139,7 @@ export default function App() {
       addLog('Calculating TF-IDF vectors for target URLs...');
       const targetVectors = new Array(processedTargets.length);
       for (let i = 0; i < processedTargets.length; i++) {
-          targetVectors[i] = calculateTFIDF(processedTargets[i].doc, undefined, idfMap);
+          targetVectors[i] = await calculateTFIDF(processedTargets[i].doc);
           if (i % 100 === 0 || i === processedTargets.length - 1) {
               setProgress(50 + ((i + 1) / processedTargets.length) * 40);
               addLog(`Calculating target vectors (${i + 1}/${processedTargets.length})...`);

@@ -6,7 +6,43 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
-const BATCH_SIZE = 50; // Process URLs in smaller batches
+const BATCH_SIZE = 100; // Increased batch size for better performance
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
+// Retry function with exponential backoff
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  retries: number = MAX_RETRIES,
+  delay: number = RETRY_DELAY
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (retries > 0 && isRetryableError(error)) {
+      console.warn(`Operation failed, retrying in ${delay}ms. Retries left: ${retries - 1}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return withRetry(operation, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
+function isRetryableError(error: any): boolean {
+  if (!error) return false;
+  
+  // Network errors
+  if (error.message?.includes('fetch')) return true;
+  
+  // Supabase specific errors that might be temporary
+  const retryableCodes = ['PGRST301', 'PGRST302', '23505']; // Connection issues, rate limits
+  if (error.code && retryableCodes.includes(error.code)) return true;
+  
+  // HTTP status codes that are retryable
+  if (error.status && [408, 429, 500, 502, 503, 504].includes(error.status)) return true;
+  
+  return false;
+}
 
 export async function storeUrlData(
   url: string,
@@ -18,19 +54,24 @@ export async function storeUrlData(
   const safeBody = body || '';
   const safeTitle = title || '';
   
-  const { data, error } = await supabase
-    .from('urls')
-    .upsert({
-      url,
-      title: safeTitle,
-      body: safeBody,
-      preprocessed_data: preprocessedData
-    })
-    .select()
-    .maybeSingle();
+  return withRetry(async () => {
+    const { data, error } = await supabase
+      .from('urls')
+      .upsert({
+        url,
+        title: safeTitle,
+        body: safeBody,
+        preprocessed_data: preprocessedData
+      })
+      .select()
+      .maybeSingle();
 
-  if (error) throw error;
-  return data;
+    if (error) {
+      console.error('Error storing URL data:', { url, error });
+      throw error;
+    }
+    return data;
+  });
 }
 
 export async function getPreprocessedUrl(url: string) {
@@ -206,41 +247,53 @@ export async function createTargetUrlList(urls: string[]) {
 }
 
 export async function getTargetUrlListId(urls: string[]) {
-  // Process in batches to avoid large query
-  const batchSize = 1000;
-  const urlBatches = [];
-  
-  for (let i = 0; i < urls.length; i += batchSize) {
-    urlBatches.push(urls.slice(i, i + batchSize));
-  }
+  return withRetry(async () => {
+    const sortedUrls = [...urls].sort(); // Create sorted copy for consistent hashing
+    
+    const hash = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(sortedUrls.join('|'))
+    ).then(buf => Array.from(new Uint8Array(buf))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+    );
 
-  const hash = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(urls.join('|'))
-  ).then(buf => Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-  );
+    // Check if list already exists
+    const { data: existingList, error: selectError } = await supabase
+      .from('target_url_lists')
+      .select('id')
+      .eq('hash', hash)
+      .maybeSingle();
 
-  const { data: existingList } = await supabase
-    .from('target_url_lists')
-    .select('id')
-    .eq('hash', hash)
-    .maybeSingle();
+    if (selectError) {
+      console.error('Error checking existing target list:', selectError);
+      throw selectError;
+    }
 
-  if (existingList) {
-    return existingList.id;
-  }
+    if (existingList) {
+      console.log(`Using existing target list: ${existingList.id}`);
+      return existingList.id;
+    }
 
-  const { data: newList, error } = await supabase
-    .from('target_url_lists')
-    .insert({ urls, hash })
-    .select('id')
-    .maybeSingle();
+    // Create new list
+    const { data: newList, error: insertError } = await supabase
+      .from('target_url_lists')
+      .insert({ urls: sortedUrls, hash })
+      .select('id')
+      .maybeSingle();
 
-  if (error) throw error;
-  if (!data) throw new Error('Failed to create target URL list');
-  return newList.id;
+    if (insertError) {
+      console.error('Error creating target URL list:', insertError);
+      throw insertError;
+    }
+    
+    if (!newList) {
+      throw new Error('Failed to create target URL list - no data returned');
+    }
+    
+    console.log(`Created new target list: ${newList.id}`);
+    return newList.id;
+  });
 }
 
 export async function getProcessedSourceUrls(sourceUrls: string[], targetListId: string) {

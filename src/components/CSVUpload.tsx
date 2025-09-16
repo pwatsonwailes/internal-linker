@@ -31,26 +31,78 @@ export function CSVUpload({ onUpload, label }: CSVUploadProps) {
           // Get the data rows (skip header row)
           const rows = results.data.slice(1) as string[][];
 
-          // Validate that each row has exactly 2 elements and non-empty values
-          const validRows = rows.filter(row => {
-            if (row.length !== 2) {
-              console.warn('Invalid row length:', row);
-              return false;
+          // Validate and clean rows
+          const validRows: string[][] = [];
+          const duplicateUrls = new Set<string>();
+          const issues: string[] = [];
+
+          rows.forEach((row, index) => {
+            const lineNumber = index + 2; // +2 because we skipped header and arrays are 0-indexed
+            
+            if (!Array.isArray(row) || row.length !== 2) {
+              issues.push(`Line ${lineNumber}: Row must have exactly 2 columns`);
+              return;
             }
-            // Check that no element is empty and URL is valid
-            const [url, body] = row;
-            if (!url?.trim() || !body?.trim()) {
-              console.warn('Empty URL or body in row:', row);
-              return false;
+
+            const [url, body] = row.map(cell => typeof cell === 'string' ? cell.trim() : '');
+            
+            // Validate URL
+            if (!url) {
+              issues.push(`Line ${lineNumber}: URL is empty`);
+              return;
             }
+            
             try {
-              new URL(url.trim());
-              return true;
+              const urlObj = new URL(url);
+              if (!['http:', 'https:'].includes(urlObj.protocol)) {
+                issues.push(`Line ${lineNumber}: URL must use HTTP or HTTPS protocol`);
+                return;
+              }
             } catch {
-              console.warn('Invalid URL in row:', row);
-              return false;
+              issues.push(`Line ${lineNumber}: Invalid URL format`);
+              return;
             }
+
+            // Check for duplicate URLs
+            if (duplicateUrls.has(url)) {
+              issues.push(`Line ${lineNumber}: Duplicate URL found`);
+              return;
+            }
+            duplicateUrls.add(url);
+
+            // Validate body content
+            if (!body) {
+              issues.push(`Line ${lineNumber}: Body text is empty`);
+              return;
+            }
+
+            if (body.length < 10) {
+              issues.push(`Line ${lineNumber}: Body text is too short (minimum 10 characters)`);
+            }
+
+            if (body.length > 50000) {
+              issues.push(`Line ${lineNumber}: Body text is too long (maximum 50,000 characters)`);
+              return;
+            }
+
+            // Check for reasonable word count
+            const wordCount = body.split(/\s+/).filter(word => word.length > 0).length;
+            if (wordCount < 3) {
+              issues.push(`Line ${lineNumber}: Body text has too few words (minimum 3 words)`);
+            }
+
+            validRows.push([url, body]);
           });
+
+          // Show validation summary
+          if (issues.length > 0) {
+            console.warn('CSV Validation Issues:', issues);
+            if (issues.length > 10) {
+              alert(`Found ${issues.length} validation issues. First 10:\n${issues.slice(0, 10).join('\n')}\n\nCheck console for full list.`);
+            } else {
+              alert(`Validation issues found:\n${issues.join('\n')}`);
+            }
+          }
 
           if (validRows.length === 0) {
             throw new Error('No valid data found in CSV. Each row must have a valid URL and non-empty body text.');

@@ -49,23 +49,17 @@ self.onmessage = async (e: MessageEvent) => {
     console.log(`[Worker] Number of targets: ${targets.length}`);
     console.log(`[Worker] IDF Map size: ${idfMap.size}`);
 
-    // Clear vector cache to ensure fresh calculations
-    clearVectorCache(true);
+    // Use the precomputed IDF from the main thread
+    // The IDF should already be computed for the entire corpus
+    console.log(`[Worker] Using precomputed IDF with ${idfMap.size} terms`);
 
-    // Combine all documents for IDF calculation
-    const allDocs = targets.map(t => t.doc);
-    allDocs.push(source.doc);
-    
-    // Initialize the IDF values with all documents
-    const idfMapObj = precomputeIDF(allDocs);
-
-    // Calculate source vector using the updated IDF values
-    const sourceVector = calculateTFIDF(source.doc, allDocs, idfMapObj);
+    // Calculate source vector using the precomputed target vectors' vocabulary
+    updateProgress('Calculating source vector...', 20);
+    const sourceVector = await calculateTFIDF(source.doc);
 
     if (!sourceVector || sourceVector.length === 0) {
       console.error('[Worker] Failed to calculate source vector:', {
         sourceDocLength: source.doc.length,
-        idfMapSize: idfMapObj.size,
         vectorLength: sourceVector?.length
       });
       throw new Error('Failed to calculate source vector');
@@ -73,19 +67,11 @@ self.onmessage = async (e: MessageEvent) => {
 
     console.log(`[Worker] Source vector calculated with length: ${sourceVector.length}`);
 
-    // Recalculate target vectors with updated vocabulary
-    updateProgress('Recalculating target vectors...', 30);
-    const updatedTargetVectors = targets.map((target, index) => {
-      const vector = calculateTFIDF(target.doc, allDocs, idfMapObj);
-      if ((index + 1) % 100 === 0) {
-        updateProgress(`Processed ${index + 1}/${targets.length} target vectors...`, 30 + (index / targets.length) * 40);
-      }
-      return vector;
-    });
+    // Use the precomputed target vectors from main thread
+    updateProgress('Using precomputed target vectors...', 60);
+    console.log(`[Worker] Using ${targetVectors.length} precomputed target vectors`);
 
-    console.log(`[Worker] Recalculated ${updatedTargetVectors.length} target vectors`);
-
-    // Process candidates with updated vectors
+    // Process candidates with precomputed target vectors
     const candidateIndices = Array.from({ length: targets.length }, (_, i) => i);
     
     updateProgress('Calculating similarities...', 70);
@@ -94,7 +80,7 @@ self.onmessage = async (e: MessageEvent) => {
       sourceVector,
       candidateIndices,
       targets,
-      updatedTargetVectors
+      targetVectors
     );
 
     // Filter and sort results
