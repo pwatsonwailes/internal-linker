@@ -65,7 +65,7 @@ export default function App() {
 
   useEffect(() => {
     addLog('Initializing worker pool...');
-    workerPoolRef.current = new WorkerPool(new URL('./workers/similarity.worker.ts', import.meta.url).href, undefined, { type: 'module' }); 
+    workerPoolRef.current = new WorkerPool(new URL('./workers/similarity.worker.js', import.meta.url).href, undefined, { type: 'module' }); 
     addLog(`Worker pool initialized with ${workerPoolRef.current.getNumWorkers()} workers.`);
 
     return () => {
