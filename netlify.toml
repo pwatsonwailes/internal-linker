@@ -1,13 +1,12 @@
 [build]
-  command = "npm ci --omit=optional && npm run build"
+  command = "rm -rf node_modules package-lock.json && npm install --omit=optional --legacy-peer-deps && npm run build"
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_VERSION = "20"
   NPM_CONFIG_INCLUDE = "dev"
   NPM_CONFIG_OMIT = "optional"
   ROLLUP_NO_NATIVE = "true"
-  ESBUILD_BINARY_PATH = "/usr/bin/esbuild"
 
 [[redirects]]
   from = "/*"
