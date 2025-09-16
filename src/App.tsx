@@ -19,7 +19,8 @@ import {
     getProcessedSourceUrls, 
     createTargetUrlList,
     batchGetSimilarityResults,
-    storeSimilarityResult
+    storeSimilarityResult,
+    markSourceUrlProcessed
 } from './lib/supabase';
 
 interface PrecomputedTargetData {
@@ -292,10 +293,19 @@ export default function App() {
         const taskPromise = workerPoolRef.current!.addTask<any, SimilarityResult>(taskData);
         taskPromises.push(taskPromise);
 
-        taskPromise.then(response => {
+        taskPromise.then(async response => {
             if (response?.result) {
                 addLog(`Task ${taskData.id.substring(0,10)} completed successfully. Matches found: ${response.result.matches.length}`, 'success');
                 setResults(prev => [...prev, response.result]);
+                
+                // Mark URL as processed if it had valid matches
+                if (response.result.shouldMarkProcessed) {
+                    try {
+                        await markSourceUrlProcessed(response.result.sourceUrl, targetListId);
+                    } catch (error) {
+                        console.error('Failed to mark URL as processed:', error);
+                    }
+                }
             } else {
                  addLog(`Task ${taskData.id.substring(0,10)} completed with no significant matches.`);
             }

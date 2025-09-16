@@ -1,5 +1,6 @@
 export interface SimilarityResult {
   sourceUrl: string;
+  sourceTitle?: string;
   matches: {
     url: string;
     similarity: number;
@@ -7,6 +8,7 @@ export interface SimilarityResult {
     topics: string[];
   }[];
   topics: string[];
+  shouldMarkProcessed?: boolean;
 }
 
 export interface CSVRow {

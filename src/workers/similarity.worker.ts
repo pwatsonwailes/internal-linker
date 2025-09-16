@@ -4,14 +4,7 @@ import { BloomFilter } from '../utils/bloomFilter';
 import { InvertedIndex } from '../utils/invertedIndex';
 import { PrefixIndex } from '../utils/prefixIndex';
 import { TopicModel } from '../utils/topicModeling';
-import { 
-  batchGetSimilarityResults, 
-  getTargetUrlListId,
-  getProcessedSourceUrls,
-  markSourceUrlProcessed,
-  getTargetUrlList,
-  createTargetUrlList
-} from '../lib/supabase';
+// Removed Supabase imports - database operations will be handled in main thread
 import { preprocessUrl, clearPreprocessingCache } from './modules/preprocessing';
 import { processBatchInParallel } from './modules/parallelProcessor';
 import { processCandidates } from './modules/candidateProcessor';
@@ -90,8 +83,6 @@ self.onmessage = async (e: MessageEvent) => {
       .slice(0, 5);
 
     if (validMatches.length > 0) {
-      await markSourceUrlProcessed(source.url, targetListId);
-
       // Log similarity scores for debugging
       console.log('[Worker] Match similarity scores:', 
         validMatches.map(m => ({
@@ -107,7 +98,8 @@ self.onmessage = async (e: MessageEvent) => {
           sourceUrl: source.url,
           sourceTitle: source.title,
           matches: validMatches,
-          topics: [] // Topics will be computed separately if needed
+          topics: [], // Topics will be computed separately if needed
+          shouldMarkProcessed: true // Signal to main thread to mark as processed
         }
       });
 
@@ -116,7 +108,13 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({
         type: 'result',
         taskId: id,
-        result: null
+        result: {
+          sourceUrl: source.url,
+          sourceTitle: source.title,
+          matches: [],
+          topics: [],
+          shouldMarkProcessed: false // No matches, don't mark as processed
+        }
       });
       console.log(`[Worker] Task ${id} completed with no matches`);
     }
