@@ -11,6 +11,26 @@ import { processCandidates } from './modules/candidateProcessor';
 import { checkMemory, clearMemory } from './modules/memoryManager';
 import { calculateTFIDF, precomputeIDF, clearVectorCache } from './modules/vectorization';
 
+function extractSimpleTopics(doc: string[]): string[] {
+  if (!doc || doc.length === 0) return [];
+  
+  // Count term frequencies
+  const termFreq = new Map<string, number>();
+  doc.forEach(term => {
+    if (term && term.length > 3) { // Only consider terms longer than 3 characters
+      termFreq.set(term, (termFreq.get(term) || 0) + 1);
+    }
+  });
+  
+  // Sort by frequency and take top terms
+  const sortedTerms = Array.from(termFreq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5) // Take top 5 terms
+    .map(([term]) => term);
+  
+  return sortedTerms;
+}
+
 self.onmessage = async (e: MessageEvent) => {
   const { id, payload } = e.data;
 
@@ -91,6 +111,9 @@ self.onmessage = async (e: MessageEvent) => {
         }))
       );
 
+      // Extract topics from source document
+      const sourceTopics = extractSimpleTopics(source.doc || []);
+      
       self.postMessage({
         type: 'result',
         taskId: id,
@@ -98,7 +121,7 @@ self.onmessage = async (e: MessageEvent) => {
           sourceUrl: source.url,
           sourceTitle: source.title,
           matches: validMatches,
-          topics: [], // Topics will be computed separately if needed
+          topics: sourceTopics,
           shouldMarkProcessed: true // Signal to main thread to mark as processed
         }
       });

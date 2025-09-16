@@ -352,10 +352,15 @@ export default function App() {
                 const sourceInfo = sourceUrls.find(s => s[0] === url);
                 const matches = cachedDbResults.get(url);
                 if (sourceInfo && matches && matches.length > 0) {
+                    // Extract source topics from the first match's source data
+                    const firstMatch = matches[0];
+                    const sourceTopics = extractSimpleTopics(firstMatch.sourceDoc || []);
+                    
                     initialResults.push({
                         sourceUrl: url,
                         sourceTitle: sourceInfo[1] || url,
-                        matches: matches
+                        matches: matches,
+                        topics: sourceTopics
                     });
                 }
             });

@@ -28,6 +28,26 @@ async function withRetry<T>(
   }
 }
 
+function extractSimpleTopics(doc: string[]): string[] {
+  if (!doc || doc.length === 0) return [];
+  
+  // Count term frequencies
+  const termFreq = new Map<string, number>();
+  doc.forEach(term => {
+    if (term && term.length > 3) { // Only consider terms longer than 3 characters
+      termFreq.set(term, (termFreq.get(term) || 0) + 1);
+    }
+  });
+  
+  // Sort by frequency and take top terms
+  const sortedTerms = Array.from(termFreq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5) // Take top 5 terms
+    .map(([term]) => term);
+  
+  return sortedTerms;
+}
+
 function isRetryableError(error: any): boolean {
   if (!error) return false;
   
@@ -149,6 +169,8 @@ export async function batchGetSimilarityResults(sourceUrls: string[]) {
       title: string;
       similarity: number;
       suggestedAnchor: string;
+      topics: string[];
+      sourceDoc?: string[];
     }[]>();
 
     for (let i = 0; i < sourceUrls.length; i += BATCH_SIZE) {
@@ -175,8 +197,8 @@ export async function batchGetSimilarityResults(sourceUrls: string[]) {
           source_url_id,
           similarity_score,
           suggested_anchor,
-          source:urls!similarity_results_source_url_id_fkey(url, title),
-          target:urls!target_url_id(url, title)
+          source:urls!similarity_results_source_url_id_fkey(url, title, preprocessed_data),
+          target:urls!target_url_id(url, title, preprocessed_data)
         `)
         .in('source_url_id', sourceIds)
         .order('similarity_score', { ascending: false });
@@ -195,11 +217,16 @@ export async function batchGetSimilarityResults(sourceUrls: string[]) {
         
         const matches = results.get(sourceUrl)!;
         if (matches.length < 5) {
+          // Extract topics from target document
+          const targetTopics = extractSimpleTopics(result.target.preprocessed_data?.tokens || []);
+          
           matches.push({
             url: result.target.url,
             title: result.target.title,
             similarity: result.similarity_score,
-            suggestedAnchor: result.suggested_anchor
+            suggestedAnchor: result.suggested_anchor,
+            topics: targetTopics,
+            sourceDoc: result.source.preprocessed_data?.tokens || []
           });
         }
       });
