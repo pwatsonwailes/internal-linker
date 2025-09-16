@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { SimilarityResult, TopicGroup, UrlGroup } from '../types';
-import { Search, ChevronDown, ChevronRight, ListTree, List } from 'lucide-react';
+import { Search, ChevronDown, ChevronRight, ListTree, List, Download } from 'lucide-react';
 
 interface ResultsProps {
   results: SimilarityResult[];
@@ -91,6 +91,65 @@ export function Results({ results }: ResultsProps) {
     currentPage * ITEMS_PER_PAGE
   );
 
+  const exportToCSV = () => {
+    const csvData = [];
+    
+    // Add header row
+    csvData.push([
+      'Source URL',
+      'Source Title',
+      'Match URL',
+      'Similarity Score (%)',
+      'Suggested Anchor Text',
+      'Match Topics',
+      'Source Topics'
+    ]);
+    
+    // Add data rows
+    results.forEach(result => {
+      if (result.matches.length === 0) {
+        // Add row for URLs with no matches
+        csvData.push([
+          result.sourceUrl,
+          result.sourceTitle || '',
+          '',
+          '',
+          '',
+          '',
+          result.topics.join('; ')
+        ]);
+      } else {
+        result.matches.forEach(match => {
+          csvData.push([
+            result.sourceUrl,
+            result.sourceTitle || '',
+            match.url,
+            (match.similarity * 100).toFixed(2),
+            match.suggestedAnchor,
+            match.topics.join('; '),
+            result.topics.join('; ')
+          ]);
+        });
+      }
+    });
+    
+    // Convert to CSV string
+    const csvString = csvData.map(row => 
+      row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+    
+    // Create and download file
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `internal-linker-results-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (results.length === 0) return null;
 
   return (
@@ -115,15 +174,25 @@ export function Results({ results }: ResultsProps) {
             </button>
           </div>
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-          <input
-            type="text"
-            placeholder="Search results..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2 border rounded-md w-64"
-          />
+        <div className="flex items-center gap-4">
+          <button
+            onClick={exportToCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+            title="Export to CSV"
+          >
+            <Download size={16} />
+            Export CSV
+          </button>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <input
+              type="text"
+              placeholder="Search results..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 border rounded-md w-64"
+            />
+          </div>
         </div>
       </div>
 

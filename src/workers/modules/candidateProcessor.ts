@@ -27,6 +27,26 @@ function findSuggestedAnchor(sourceText: string, targetText: string): string {
   return phrases[0];
 }
 
+function extractSimpleTopics(doc: string[]): string[] {
+  if (!doc || doc.length === 0) return [];
+  
+  // Count term frequencies
+  const termFreq = new Map<string, number>();
+  doc.forEach(term => {
+    if (term && term.length > 3) { // Only consider terms longer than 3 characters
+      termFreq.set(term, (termFreq.get(term) || 0) + 1);
+    }
+  });
+  
+  // Sort by frequency and take top terms
+  const sortedTerms = Array.from(termFreq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5) // Take top 5 terms
+    .map(([term]) => term);
+  
+  return sortedTerms;
+}
+
 export async function processCandidates(
   source: ProcessedUrl,
   sourceVector: Float64Array,
@@ -97,12 +117,15 @@ export async function processCandidates(
         const targetFullText = `${targetMetaData.title || ''} ${targetMetaData.body || ''}`.trim();
         const suggestedAnchor = findSuggestedAnchor(sourceFullText, targetFullText);
 
+        // Extract simple topics from the target document
+        const targetTopics = extractSimpleTopics(targetMetaData.doc || []);
+        
         allMatches.push({
           url: targetMetaData.url,
           title: targetMetaData.title,
           similarity: similarity,
           suggestedAnchor: suggestedAnchor,
-          topics: [] // Topics will be computed separately if needed
+          topics: targetTopics
         });
       }
     }

@@ -209,6 +209,27 @@ export default function App() {
 
   }, [targetUrls, addLog]);
 
+  // Simple topic extraction function
+  const extractSimpleTopics = (doc: string[]): string[] => {
+    if (!doc || doc.length === 0) return [];
+    
+    // Count term frequencies
+    const termFreq = new Map<string, number>();
+    doc.forEach(term => {
+      if (term && term.length > 3) { // Only consider terms longer than 3 characters
+        termFreq.set(term, (termFreq.get(term) || 0) + 1);
+      }
+    });
+    
+    // Sort by frequency and take top terms
+    const sortedTerms = Array.from(termFreq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5) // Take top 5 terms
+      .map(([term]) => term);
+    
+    return sortedTerms;
+  };
+
   // Main thread fallback processing function
   const processUrlInMainThread = useCallback(async (source: ProcessedUrl, targets: ProcessedUrl[], targetVectors: Float64Array[], idfMap: Map<string, number>, vocabulary: string[], targetListId: string): Promise<SimilarityResult> => {
     try {
@@ -245,11 +266,14 @@ export default function App() {
       
       const matches = validMatches;
       
+      // Extract topics from source document
+      const sourceTopics = extractSimpleTopics(source.doc || []);
+      
       const result: SimilarityResult = {
         sourceUrl: source.url,
         sourceTitle: source.title,
         matches,
-        topics: [],
+        topics: sourceTopics,
         shouldMarkProcessed: matches.length > 0
       };
       
@@ -524,18 +548,22 @@ export default function App() {
             </div>
           </section>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <section>
+          {/* Processing Logs - shown during processing, hidden after completion */}
+          {(isLoading || (logs.length > 0 && !isProcessing)) && (
+            <section className="mb-6">
               <ProcessingLogs 
                 logs={logs} 
-                isVisible={logs.length > 0 || isLoading}
+                isVisible={true}
               />
             </section>
-            
+          )}
+          
+          {/* Results - shown after processing starts */}
+          {results.length > 0 && (
             <section>
               <Results results={results} />
             </section>
-          </div>
+          )}
         </div>
       </main>
     </div>
