@@ -22,10 +22,6 @@ export default defineConfig({
           'supabase': ['@supabase/supabase-js'],
           'utils': ['papaparse', 'lucide-react']
         }
-      },
-      external: (id) => {
-        // Don't bundle optional dependencies
-        return id.includes('@rollup/rollup-') && id.includes('-gnu');
       }
     },
     target: 'es2020',
