@@ -15,24 +15,36 @@ function groupByTopics(results: SimilarityResult[]): TopicGroup[] {
   }>>();
 
   results.forEach(result => {
-    result.topics.forEach(topic => {
-      if (!topicMap.has(topic)) {
-        topicMap.set(topic, new Set());
-      }
-      topicMap.get(topic)!.add({
-        url: result.sourceUrl,
-        matches: result.matches
-      });
-    });
-
-    result.matches.forEach(match => {
-      match.topics.forEach(topic => {
-        if (!topicMap.has(topic)) {
-          topicMap.set(topic, new Set());
+    // Ensure topics array exists and is valid
+    if (result.topics && Array.isArray(result.topics)) {
+      result.topics.forEach(topic => {
+        if (topic && typeof topic === 'string') {
+          if (!topicMap.has(topic)) {
+            topicMap.set(topic, new Set());
+          }
+          topicMap.get(topic)!.add({
+            url: result.sourceUrl,
+            matches: result.matches
+          });
         }
-        topicMap.get(topic)!.add({ url: match.url });
       });
-    });
+    }
+
+    // Ensure matches array exists and is valid
+    if (result.matches && Array.isArray(result.matches)) {
+      result.matches.forEach(match => {
+        if (match && match.topics && Array.isArray(match.topics)) {
+          match.topics.forEach(topic => {
+            if (topic && typeof topic === 'string') {
+              if (!topicMap.has(topic)) {
+                topicMap.set(topic, new Set());
+              }
+              topicMap.get(topic)!.add({ url: match.url });
+            }
+          });
+        }
+      });
+    }
   });
 
   return Array.from(topicMap.entries())
@@ -46,8 +58,8 @@ function groupByTopics(results: SimilarityResult[]): TopicGroup[] {
 function groupByUrls(results: SimilarityResult[]): UrlGroup[] {
   return results.map(result => ({
     url: result.sourceUrl,
-    topics: result.topics,
-    matches: result.matches
+    topics: result.topics || [],
+    matches: result.matches || []
   }));
 }
 
@@ -66,12 +78,12 @@ export function Results({ results }: ResultsProps) {
     const term = searchTerm.toLowerCase();
     return results.filter(result => 
       result.sourceUrl.toLowerCase().includes(term) ||
-      result.matches.some(match => 
+      (result.matches && Array.isArray(result.matches) && result.matches.some(match => 
         match.url.toLowerCase().includes(term) ||
         match.suggestedAnchor.toLowerCase().includes(term) ||
-        match.topics.some(topic => topic.toLowerCase().includes(term))
-      ) ||
-      result.topics.some(topic => topic.toLowerCase().includes(term))
+        (match.topics && Array.isArray(match.topics) && match.topics.some(topic => topic.toLowerCase().includes(term)))
+      )) ||
+      (result.topics && Array.isArray(result.topics) && result.topics.some(topic => topic.toLowerCase().includes(term)))
     );
   }, [results, searchTerm]);
 
@@ -107,7 +119,10 @@ export function Results({ results }: ResultsProps) {
     
     // Add data rows
     results.forEach(result => {
-      if (result.matches.length === 0) {
+      const matches = result.matches || [];
+      const topics = result.topics || [];
+      
+      if (matches.length === 0) {
         // Add row for URLs with no matches
         csvData.push([
           result.sourceUrl,
@@ -116,18 +131,19 @@ export function Results({ results }: ResultsProps) {
           '',
           '',
           '',
-          result.topics.join('; ')
+          topics.join('; ')
         ]);
       } else {
-        result.matches.forEach(match => {
+        matches.forEach(match => {
+          const matchTopics = match.topics || [];
           csvData.push([
             result.sourceUrl,
             result.sourceTitle || '',
             match.url,
             (match.similarity * 100).toFixed(2),
             match.suggestedAnchor,
-            match.topics.join('; '),
-            result.topics.join('; ')
+            matchTopics.join('; '),
+            topics.join('; ')
           ]);
         });
       }
@@ -206,7 +222,7 @@ export function Results({ results }: ResultsProps) {
                 </a>
               </h3>
               <div className="mb-4 flex flex-wrap gap-2">
-                {result.topics.map((topic, i) => (
+                {(result.topics || []).map((topic, i) => (
                   <span key={i} className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
                     {topic}
                   </span>
@@ -214,7 +230,7 @@ export function Results({ results }: ResultsProps) {
               </div>
               <div className="space-y-3">
                 <h4 className="font-medium">Top 5 Similar URLs:</h4>
-                {result.matches.map((match, matchIndex) => (
+                {(result.matches || []).map((match, matchIndex) => (
                   <div key={matchIndex} className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-gray-50 p-3 rounded">
                     <div className="mb-2 sm:mb-0 space-y-1">
                       <a href={match.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 block">
@@ -224,7 +240,7 @@ export function Results({ results }: ResultsProps) {
                         Suggested anchor text: <span className="font-medium text-emerald-600">{match.suggestedAnchor}</span>
                       </p>
                       <div className="flex flex-wrap gap-1">
-                        {match.topics.map((topic, i) => (
+                        {(match.topics || []).map((topic, i) => (
                           <span key={i} className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full text-xs">
                             {topic}
                           </span>
@@ -273,7 +289,7 @@ export function Results({ results }: ResultsProps) {
                       >
                         {item.url}
                       </a>
-                      {item.matches && (
+                      {item.matches && Array.isArray(item.matches) && (
                         <div className="mt-2 pl-4 space-y-2">
                           {item.matches.map((match, j) => (
                             <div key={j} className="text-sm text-gray-600">
