@@ -81,8 +81,13 @@ export default function App() {
         .split(' ')
         .filter(word => word.length >= 3); // Filter short words first
 
+      console.log('UI Test - Input words:', words);
+      
       // Apply stopwords filtering
       const filteredWords = filterStopWordsForTopics(words, 3);
+      
+      console.log('UI Test - Filtered words:', filteredWords);
+      console.log('UI Test - Function type:', typeof filterStopWordsForTopics);
       
       setStopwordsTestResult(filteredWords);
       addLog(`Stopwords test completed: ${words.length} words → ${filteredWords.length} filtered words`, 'success');
