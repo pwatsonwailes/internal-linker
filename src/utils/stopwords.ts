@@ -1,16 +1,17 @@
 import { detectLanguage } from './languageDetection';
+// @ts-ignore - stopword package doesn't have type definitions
 import * as stopword from 'stopword';
 
-// Map language codes to stopword package language codes
-const languageMap = {
-  en: 'eng',
-  fr: 'fra', 
-  de: 'deu',
-  es: 'spa',
-  it: 'ita',
-  pt: 'por',
-  ja: 'jpn'
-} as const;
+// Note: languageMap is not currently used but kept for potential future use
+// const languageMap = {
+//   en: 'eng',
+//   fr: 'fra', 
+//   de: 'deu',
+//   es: 'spa',
+//   it: 'ita',
+//   pt: 'por',
+//   ja: 'jpn'
+// } as const;
 
 // Create stopwords sets from the npm package
 export const stopWords = {

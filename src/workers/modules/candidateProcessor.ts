@@ -6,14 +6,24 @@ import {
     batchCosineSimilarity,
     clearVectorCache
 } from './vectorization';
-import { filterStopWordsForTopics } from '../../utils/stopwords'; 
+import { filterStopWordsForTopics, stopWords } from '../../utils/stopwords';
+import { detectLanguage } from '../../utils/languageDetection'; 
 
 // Lowered threshold to catch more potential matches
 const SIMILARITY_THRESHOLD = 0.01;
 const MAX_MATCHES = 5;
 
 function findSuggestedAnchor(sourceText: string, targetText: string): string {
-  const words = targetText.split(/\s+/).filter(w => w.length > 2);
+  // Detect language and get stopwords
+  const lang = detectLanguage(targetText);
+  const languageStopWords = stopWords[lang] || stopWords.en;
+  
+  // Filter out stopwords and short words
+  const words = targetText.split(/\s+/).filter(w => 
+    w.length >= 3 && 
+    !languageStopWords.has(w.toLowerCase())
+  );
+  
   const phrases = [];
   
   for (let i = 0; i < words.length - 2; i++) {
@@ -21,8 +31,18 @@ function findSuggestedAnchor(sourceText: string, targetText: string): string {
   }
 
   if (phrases.length === 0) {
-    const firstWords = targetText.trim().split(/\s+/).slice(0, 5).join(' ');
-    return firstWords.length > 2 ? firstWords : targetText.slice(0, 30);
+    // If no good phrases, try to get meaningful words from the beginning
+    const meaningfulWords = targetText.trim().split(/\s+/).filter(w => 
+      w.length >= 3 && 
+      !languageStopWords.has(w.toLowerCase())
+    ).slice(0, 5);
+    
+    if (meaningfulWords.length > 0) {
+      return meaningfulWords.join(' ');
+    }
+    
+    // Fallback to first 30 characters if no meaningful words found
+    return targetText.slice(0, 30);
   }
 
   return phrases[0];

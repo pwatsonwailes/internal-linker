@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Upload, Loader2 } from 'lucide-react';
 import Papa from 'papaparse';
+import { preprocessText } from '../workers/modules/preprocessing';
 
 interface CSVUploadProps {
   onUpload: (data: string[][]) => void;
@@ -85,13 +86,17 @@ export function CSVUpload({ onUpload, label }: CSVUploadProps) {
               return;
             }
 
-            // Check for reasonable word count
-            const wordCount = body.split(/\s+/).filter(word => word.length > 0).length;
-            if (wordCount < 3) {
-              issues.push(`Line ${lineNumber}: Body text has too few words (minimum 3 words)`);
+            // Preprocess the body text to remove stopwords, normalize, and validate meaningful content
+            const preprocessedTokens = preprocessText(body);
+            
+            // Check for reasonable word count after preprocessing (stopwords removed)
+            if (preprocessedTokens.length < 3) {
+              issues.push(`Line ${lineNumber}: Body text has too few meaningful words after preprocessing (minimum 3 words after removing stopwords)`);
             }
 
-            validRows.push([url, body]);
+            // Use the preprocessed text (stopwords removed, normalized) for better analysis
+            const preprocessedBody = preprocessedTokens.join(' ');
+            validRows.push([url, preprocessedBody]);
           });
 
           // Show validation summary

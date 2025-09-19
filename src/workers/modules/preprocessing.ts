@@ -22,7 +22,7 @@ export function preprocessText(text: string): string[] {
     .trim()
     .split(' ')
     .filter(word => 
-      word.length > 1 && 
+      word.length >= 3 && 
       word.length < 50 && // Reject extremely long words (likely errors)
       !stopWords[lang].has(word) &&
       /^[a-zA-ZÀ-ÿ]+$/.test(word) // Only alphabetic characters
