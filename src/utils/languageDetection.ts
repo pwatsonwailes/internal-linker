@@ -1,4 +1,4 @@
-import { stopWords } from './stopwords';
+// stopWords import removed - not used in this file
 
 // CPU-based pattern matching
 function countPatternMatches(text: string, pattern: string): number {
