@@ -1,26 +1,23 @@
 import { detectLanguage } from './languageDetection';
 // @ts-ignore - stopword package doesn't have type definitions
-import { removeStopwords } from 'stopword';
+import { removeStopwords, eng, fra, deu, spa, ita, por, jpn } from 'stopword';
 
 // Map language codes to stopword package language arrays
 const languageStopwordMap = {
-  en: 'eng',
-  fr: 'fra', 
-  de: 'deu',
-  es: 'spa',
-  it: 'ita',
-  pt: 'por',
-  ja: 'jpn'
+  en: eng,
+  fr: fra, 
+  de: deu,
+  es: spa,
+  it: ita,
+  pt: por,
+  ja: jpn
 } as const;
 
 /**
  * Get the appropriate stopwords array for a language
  */
 function getStopwordsForLanguage(lang: keyof typeof languageStopwordMap): string[] {
-  // @ts-ignore - Dynamic import of language-specific stopwords
-  const stopwordPackage = require('stopword');
-  const languageKey = languageStopwordMap[lang];
-  return stopwordPackage[languageKey] || stopwordPackage.eng; // Fallback to English
+  return languageStopwordMap[lang] || eng; // Fallback to English
 }
 
 /**
