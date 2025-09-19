@@ -7,7 +7,7 @@ import {
     clearVectorCache
 } from './vectorization';
 import { extractSimpleTopics } from '../../utils/topicExtraction';
-import { stopWords } from '../../utils/stopwords';
+import { filterStopWordsForTopics } from '../../utils/stopwords';
 import { detectLanguage } from '../../utils/languageDetection'; 
 
 // Lowered threshold to catch more potential matches
@@ -15,35 +15,31 @@ const SIMILARITY_THRESHOLD = 0.01;
 const MAX_MATCHES = 5;
 
 function findSuggestedAnchor(sourceText: string, targetText: string): string {
-  // Detect language and get stopwords
-  const lang = detectLanguage(targetText);
-  const languageStopWords = stopWords[lang] || stopWords.en;
+  // Normalize and split the target text
+  const words = targetText.toLowerCase()
+    .replace(/[^\p{L}\s]/gu, '') // Keep only letters and spaces
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim()
+    .split(' ')
+    .filter(word => word.length >= 3); // Filter short words first
   
-  // Filter out stopwords and short words
-  const words = targetText.split(/\s+/).filter(w => 
-    w.length >= 3 && 
-    !languageStopWords.has(w.toLowerCase())
-  );
+  // Use the standardized stopwords filtering function
+  const filteredWords = filterStopWordsForTopics(words, 3);
   
+  if (filteredWords.length === 0) {
+    // Fallback to first 30 characters if no meaningful words found
+    return targetText.slice(0, 30);
+  }
+  
+  // Create phrases from filtered words
   const phrases = [];
-  
-  for (let i = 0; i < words.length - 2; i++) {
-    phrases.push(words.slice(i, i + 3).join(' '));
+  for (let i = 0; i < filteredWords.length - 2; i++) {
+    phrases.push(filteredWords.slice(i, i + 3).join(' '));
   }
 
   if (phrases.length === 0) {
-    // If no good phrases, try to get meaningful words from the beginning
-    const meaningfulWords = targetText.trim().split(/\s+/).filter(w => 
-      w.length >= 3 && 
-      !languageStopWords.has(w.toLowerCase())
-    ).slice(0, 5);
-    
-    if (meaningfulWords.length > 0) {
-      return meaningfulWords.join(' ');
-    }
-    
-    // Fallback to first 30 characters if no meaningful words found
-    return targetText.slice(0, 30);
+    // If no good phrases, use the first few meaningful words
+    return filteredWords.slice(0, 5).join(' ');
   }
 
   return phrases[0];

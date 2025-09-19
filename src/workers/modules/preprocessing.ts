@@ -1,5 +1,5 @@
 import { detectLanguage } from '../../utils/languageDetection';
-import { stopWords } from '../../utils/stopwords';
+import { filterStopWordsForTopics } from '../../utils/stopwords';
 import { getPreprocessedUrl, storeUrlData } from '../../lib/supabase';
 import { validateDocument } from '../../utils/tfidf';
 
@@ -15,20 +15,22 @@ export function preprocessText(text: string): string[] {
     return [];
   }
 
-  const lang = detectLanguage(text);
-  const tokens = text.toLowerCase()
+  // Normalize text: lowercase, remove non-letters, normalize whitespace
+  const normalizedText = text.toLowerCase()
     .replace(/[^\p{L}\s]/gu, '') // Keep only letters and spaces
     .replace(/\s+/g, ' ') // Normalize whitespace
-    .trim()
-    .split(' ')
+    .trim();
+
+  // Split into words
+  const words = normalizedText.split(' ')
     .filter(word => 
       word.length >= 3 && 
       word.length < 50 && // Reject extremely long words (likely errors)
-      !stopWords[lang].has(word) &&
       /^[a-zA-ZÀ-ÿ]+$/.test(word) // Only alphabetic characters
     );
 
-  return tokens;
+  // Use the standardized stopwords filtering function
+  return filterStopWordsForTopics(words, 3);
 }
 
 export async function preprocessUrl(
