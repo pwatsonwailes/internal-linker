@@ -5,6 +5,7 @@ import { ProcessingLogs } from './components/ProcessingLogs';
 import { SimilarityResult, ProcessedUrl, WorkerTask, WorkerResponse } from './types';
 import { ArrowRight, Loader2 } from 'lucide-react';
 import WorkerPool from './utils/workerPool';
+import { filterStopWordsForTopics } from './utils/stopwords';
 import { preprocessUrl, clearPreprocessingCache } from './workers/modules/preprocessing';
 import { processBatchInParallel } from './workers/modules/parallelProcessor';
 import { 
@@ -213,12 +214,13 @@ export default function App() {
   const extractSimpleTopics = (doc: string[]): string[] => {
     if (!doc || doc.length === 0) return [];
     
+    // Filter out stop words and short terms
+    const filteredTerms = filterStopWordsForTopics(doc, 3);
+    
     // Count term frequencies
     const termFreq = new Map<string, number>();
-    doc.forEach(term => {
-      if (term && term.length > 3) { // Only consider terms longer than 3 characters
-        termFreq.set(term, (termFreq.get(term) || 0) + 1);
-      }
+    filteredTerms.forEach(term => {
+      termFreq.set(term, (termFreq.get(term) || 0) + 1);
     });
     
     // Sort by frequency and take top terms

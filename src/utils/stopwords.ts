@@ -1,3 +1,5 @@
+import { detectLanguage } from './languageDetection';
+
 // Multilingual stop words
 export const stopWords = {
   en: new Set([
@@ -68,3 +70,27 @@ export const stopWords = {
     'また', 'でも', 'そして', 'なお', 'だが', 'けれども'
   ])
 };
+
+/**
+ * Filters stop words from a document for topic extraction
+ * @param doc Array of words/tokens
+ * @param minLength Minimum word length (default: 3)
+ * @returns Array of words with stop words removed
+ */
+export function filterStopWordsForTopics(doc: string[], minLength: number = 3): string[] {
+  if (!doc || doc.length === 0) return [];
+  
+  // Detect language from the document
+  const text = doc.join(' ');
+  const lang = detectLanguage(text);
+  
+  // Get stop words for the detected language
+  const languageStopWords = stopWords[lang] || stopWords.en;
+  
+  // Filter out stop words and short words
+  return doc.filter(term => 
+    term && 
+    term.length >= minLength && 
+    !languageStopWords.has(term.toLowerCase())
+  );
+}

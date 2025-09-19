@@ -1,25 +1,18 @@
-import { SimilarityResult } from '../types';
-import { MinHash } from '../utils/minHash';
-import { BloomFilter } from '../utils/bloomFilter';
-import { InvertedIndex } from '../utils/invertedIndex';
-import { PrefixIndex } from '../utils/prefixIndex';
-import { TopicModel } from '../utils/topicModeling';
-// Removed Supabase imports - database operations will be handled in main thread
-import { preprocessUrl, clearPreprocessingCache } from './modules/preprocessing';
-import { processBatchInParallel } from './modules/parallelProcessor';
+import { filterStopWordsForTopics } from '../utils/stopwords';
 import { processCandidates } from './modules/candidateProcessor';
-import { checkMemory, clearMemory } from './modules/memoryManager';
-import { calculateTFIDF, precomputeIDF, clearVectorCache } from './modules/vectorization';
+import { clearMemory } from './modules/memoryManager';
+import { calculateTFIDF, clearVectorCache } from './modules/vectorization';
 
 function extractSimpleTopics(doc: string[]): string[] {
   if (!doc || doc.length === 0) return [];
   
+  // Filter out stop words and short terms
+  const filteredTerms = filterStopWordsForTopics(doc, 3);
+  
   // Count term frequencies
   const termFreq = new Map<string, number>();
-  doc.forEach(term => {
-    if (term && term.length > 3) { // Only consider terms longer than 3 characters
-      termFreq.set(term, (termFreq.get(term) || 0) + 1);
-    }
+  filteredTerms.forEach(term => {
+    termFreq.set(term, (termFreq.get(term) || 0) + 1);
   });
   
   // Sort by frequency and take top terms

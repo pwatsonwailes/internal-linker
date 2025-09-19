@@ -1,16 +1,19 @@
 // Dynamic worker with error handling and fallbacks
+import { filterStopWordsForTopics } from '../utils/stopwords';
+
 let similarityProcessor: any = null;
 let isInitialized = false;
 
 function extractSimpleTopics(doc: string[]): string[] {
   if (!doc || doc.length === 0) return [];
   
+  // Filter out stop words and short terms
+  const filteredTerms = filterStopWordsForTopics(doc, 3);
+  
   // Count term frequencies
   const termFreq = new Map<string, number>();
-  doc.forEach(term => {
-    if (term && term.length > 3) { // Only consider terms longer than 3 characters
-      termFreq.set(term, (termFreq.get(term) || 0) + 1);
-    }
+  filteredTerms.forEach(term => {
+    termFreq.set(term, (termFreq.get(term) || 0) + 1);
   });
   
   // Sort by frequency and take top terms
