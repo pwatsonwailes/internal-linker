@@ -71,7 +71,7 @@ export default function App() {
   }, []);
 
   // Function to test stopwords filtering
-  const testStopwordsFiltering = useCallback(() => {
+  const testStopwordsFiltering = useCallback(async () => {
     try {
       // Split input into words and filter
       const words = stopwordsTestInput.toLowerCase()
@@ -81,13 +81,10 @@ export default function App() {
         .split(' ')
         .filter(word => word.length >= 3); // Filter short words first
 
-      console.log('UI Test - Input words:', words);
-      
-      // Apply stopwords filtering
-      const filteredWords = filterStopWordsForTopics(words, 3);
-      
-      console.log('UI Test - Filtered words:', filteredWords);
-      console.log('UI Test - Function type:', typeof filterStopWordsForTopics);
+      addLog('Starting language detection and stopwords filtering...', 'info');
+
+      // Apply stopwords filtering (now async with CLD)
+      const filteredWords = await filterStopWordsForTopics(words, 3);
       
       setStopwordsTestResult(filteredWords);
       addLog(`Stopwords test completed: ${words.length} words → ${filteredWords.length} filtered words`, 'success');

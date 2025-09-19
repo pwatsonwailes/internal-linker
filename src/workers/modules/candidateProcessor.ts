@@ -7,7 +7,7 @@ import {
     clearVectorCache
 } from './vectorization';
 import { extractSimpleTopics } from '../../utils/topicExtraction';
-import { filterStopWordsForTopics } from '../../utils/stopwords';
+import { filterStopWordsForTopicsSync } from '../../utils/stopwords';
 import { detectLanguage } from '../../utils/languageDetection'; 
 
 // Lowered threshold to catch more potential matches
@@ -23,8 +23,8 @@ function findSuggestedAnchor(sourceText: string, targetText: string): string {
     .split(' ')
     .filter(word => word.length >= 3); // Filter short words first
   
-  // Use the standardized stopwords filtering function
-  const filteredWords = filterStopWordsForTopics(words, 3);
+  // Use the standardized stopwords filtering function (sync version)
+  const filteredWords = filterStopWordsForTopicsSync(words, 3);
   
   if (filteredWords.length === 0) {
     // Fallback to first 30 characters if no meaningful words found

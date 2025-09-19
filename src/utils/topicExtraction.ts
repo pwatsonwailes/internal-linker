@@ -1,4 +1,4 @@
-import { filterStopWordsForTopics } from './stopwords';
+import { filterStopWordsForTopicsSync } from './stopwords';
 
 /**
  * Standardized topic extraction function used across the application
@@ -7,8 +7,8 @@ import { filterStopWordsForTopics } from './stopwords';
 export function extractSimpleTopics(doc: string[], maxTopics: number = 5): string[] {
   if (!doc || doc.length === 0) return [];
   
-  // Filter out stop words and short terms using the standardized function
-  const filteredTerms = filterStopWordsForTopics(doc, 3);
+  // Filter out stop words and short terms using the standardized function (sync version)
+  const filteredTerms = filterStopWordsForTopicsSync(doc, 3);
   
   if (filteredTerms.length === 0) return [];
   

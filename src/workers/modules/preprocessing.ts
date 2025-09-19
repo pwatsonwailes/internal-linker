@@ -1,5 +1,5 @@
 import { detectLanguage } from '../../utils/languageDetection';
-import { filterStopWordsForTopics } from '../../utils/stopwords';
+import { filterStopWordsForTopicsSync } from '../../utils/stopwords';
 import { getPreprocessedUrl, storeUrlData } from '../../lib/supabase';
 import { validateDocument } from '../../utils/tfidf';
 
@@ -29,8 +29,8 @@ export function preprocessText(text: string): string[] {
       /^[a-zA-ZÀ-ÿ]+$/.test(word) // Only alphabetic characters
     );
 
-  // Use the standardized stopwords filtering function
-  return filterStopWordsForTopics(words, 3);
+  // Use the standardized stopwords filtering function (sync version)
+  return filterStopWordsForTopicsSync(words, 3);
 }
 
 export async function preprocessUrl(

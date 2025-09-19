@@ -1,58 +1,73 @@
-// stopWords import removed - not used in this file
+// @ts-ignore - @vscode/vscode-languagedetection package doesn't have type definitions
+import { ModelOperations } from '@vscode/vscode-languagedetection';
 
-// CPU-based pattern matching
-function countPatternMatches(text: string, pattern: string): number {
-  let count = 0;
-  let pos = text.indexOf(pattern);
-  while (pos !== -1) {
-    count++;
-    pos = text.indexOf(pattern, pos + 1);
+// Language detection using VS Code's language detection (async, web-compatible)
+export async function detectLanguage(text: string): Promise<'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ja'> {
+  try {
+    // Initialize the model operations
+    const modelOperations = new ModelOperations();
+    
+    // Detect language (returns array of results with confidence scores)
+    const results = await modelOperations.runModel(text);
+    
+    // Map VS Code language detection results to our supported languages
+    const languageMap: Record<string, 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ja'> = {
+      'en': 'en',       // English
+      'eng': 'en',
+      'english': 'en',
+      'fr': 'fr',       // French
+      'fra': 'fr', 
+      'french': 'fr',
+      'de': 'de',       // German
+      'deu': 'de',
+      'ger': 'de',
+      'german': 'de',
+      'es': 'es',       // Spanish
+      'spa': 'es',
+      'spanish': 'es',
+      'it': 'it',       // Italian
+      'ita': 'it',
+      'italian': 'it',
+      'pt': 'pt',       // Portuguese
+      'por': 'pt',
+      'portuguese': 'pt',
+      'ja': 'ja',       // Japanese
+      'jpn': 'ja',
+      'japanese': 'ja'
+    };
+
+    // Get the most confident result
+    if (results && results.length > 0) {
+      const topResult = results[0];
+      const detectedLang = topResult.languageId?.toLowerCase();
+      
+      if (detectedLang && languageMap[detectedLang]) {
+        return languageMap[detectedLang];
+      }
+    }
+
+    // Fallback to English if detection fails or language not supported
+    return 'en';
+    
+  } catch (error) {
+    console.warn('Language detection failed, falling back to English:', error);
+    return 'en';
   }
-  return count;
 }
 
-// Simple language detection based on character and word patterns
-export function detectLanguage(text: string): 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ja' {
-  // Convert text to lowercase for consistent matching
-  const normalizedText = text.toLowerCase();
+// Synchronous fallback function for cases where async is not possible
+export function detectLanguageSync(text: string): 'en' | 'fr' | 'de' | 'es' | 'it' | 'pt' | 'ja' {
+  // Simple heuristic fallback for synchronous cases
+  const lowerText = text.toLowerCase();
   
-  // Check for Japanese characters first (most distinctive)
-  const hasJapanese = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(text);
-  if (hasJapanese) return 'ja';
+  // Check for distinctive patterns
+  if (/\b(le|la|les|est|sont|dans|avec|pour)\b/.test(lowerText)) return 'fr';
+  if (/\b(der|die|das|ist|und|für|mit|von)\b/.test(lowerText)) return 'de';
+  if (/\b(el|la|los|las|que|con|para|por)\b/.test(lowerText)) return 'es';
+  if (/\b(il|lo|la|gli|le|che|con|per)\b/.test(lowerText)) return 'it';
+  if (/\b(que|para|com|uma|mais|seu|pela|pelo)\b/.test(lowerText)) return 'pt';
+  if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(text)) return 'ja';
   
-  // Language specific patterns
-  const patterns = {
-    en: ['the', 'is', 'at', 'in', 'that', 'this'],
-    fr: ['le', 'la', 'les', 'est', 'sont', 'dans'],
-    de: ['der', 'die', 'das', 'ist', 'und', 'für'],
-    es: ['el', 'la', 'los', 'las', 'es', 'en'],
-    it: ['il', 'lo', 'la', 'gli', 'le', 'è'],
-    pt: ['o', 'a', 'os', 'as', 'é', 'em']
-  };
-
-  const scores: Record<string, number> = {};
-  
-  for (const [lang, langPatterns] of Object.entries(patterns)) {
-    scores[lang] = langPatterns.reduce((sum, pattern) => 
-      sum + countPatternMatches(normalizedText, pattern), 0
-    );
-    
-    // Additional language-specific characteristics
-    if (lang === 'de' && (normalizedText.includes('ß') || normalizedText.includes('ü'))) {
-      scores[lang] += 2;
-    }
-    if (lang === 'fr' && (normalizedText.includes('ç') || normalizedText.includes('é'))) {
-      scores[lang] += 1;
-    }
-    if (lang === 'es' && normalizedText.includes('ñ')) {
-      scores[lang] += 2;
-    }
-    if (lang === 'pt' && (normalizedText.includes('ã') || normalizedText.includes('õ'))) {
-      scores[lang] += 2;
-    }
-  }
-
-  // Find language with highest score
-  return Object.entries(scores)
-    .reduce((a, b) => a[1] > b[1] ? a : b)[0] as keyof typeof patterns;
+  // Default to English
+  return 'en';
 }
