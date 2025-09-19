@@ -54,7 +54,12 @@ export async function processCandidates(
   sourceVector: Float64Array,
   candidateIndices: number[],
   candidateTargetsMeta: ProcessedUrl[],
-  candidateTargetVectors: Float64Array[]
+  candidateTargetVectors: Float64Array[],
+  options: {
+    maxCandidates?: number;
+    earlyTerminationThreshold?: number;
+    useSmartFiltering?: boolean;
+  } = {}
 ): Promise<Array<SimilarityMatch | null>> {
   // Validate inputs
   if (!source || !sourceVector || !Array.isArray(candidateIndices) || !Array.isArray(candidateTargetsMeta) || !Array.isArray(candidateTargetVectors)) {
@@ -108,10 +113,30 @@ export async function processCandidates(
     
     // Store all matches with their similarity scores
     const allMatches: SimilarityMatch[] = [];
+    const earlyTerminationThreshold = options.earlyTerminationThreshold || 0.8;
+    const maxCandidates = options.maxCandidates || candidateIndices.length;
     
-    for (let i = 0; i < candidateIndices.length; i++) {
+    // Sort similarities in descending order for early termination
+    const sortedIndices = Array.from({ length: similarities.length }, (_, i) => i)
+      .sort((a, b) => similarities[b] - similarities[a]);
+    
+    let processedCount = 0;
+    let highQualityMatches = 0;
+    
+    for (const i of sortedIndices) {
+      if (processedCount >= maxCandidates) break;
+      
       const similarity = similarities[i];
       const targetMetaData = candidateTargetsMeta[i];
+      
+      // Early termination: if we have enough high-quality matches, stop processing
+      if (similarity >= earlyTerminationThreshold) {
+        highQualityMatches++;
+        if (highQualityMatches >= MAX_MATCHES && similarity < 0.9) {
+          console.log(`[Worker][processCandidates] Early termination: found ${highQualityMatches} high-quality matches`);
+          break;
+        }
+      }
       
       // Include all matches above threshold
       if (similarity >= SIMILARITY_THRESHOLD) {
@@ -130,6 +155,8 @@ export async function processCandidates(
           topics: targetTopics
         });
       }
+      
+      processedCount++;
     }
 
     // Sort matches by similarity score and take top matches

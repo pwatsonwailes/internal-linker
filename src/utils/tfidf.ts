@@ -270,7 +270,49 @@ export function cosineSimilarity(vecA: Float64Array, vecB: Float64Array): number
 }
 
 /**
- * Batch cosine similarity calculation
+ * Normalize a vector in-place for faster cosine similarity calculations
+ */
+export function normalizeVector(vector: Float64Array): Float64Array {
+  let norm = 0;
+  for (let i = 0; i < vector.length; i++) {
+    norm += vector[i] * vector[i];
+  }
+  
+  if (norm === 0) return vector;
+  
+  norm = Math.sqrt(norm);
+  for (let i = 0; i < vector.length; i++) {
+    vector[i] /= norm;
+  }
+  
+  return vector;
+}
+
+/**
+ * Fast cosine similarity for pre-normalized vectors (just dot product)
+ */
+export function fastCosineSimilarity(vecA: Float64Array, vecB: Float64Array): number {
+  if (!vecA || !vecB || !(vecA instanceof Float64Array) || !(vecB instanceof Float64Array)) {
+    throw new Error('Invalid input: vectors must be Float64Array instances');
+  }
+  
+  if (vecA.length !== vecB.length) {
+    throw new Error(`Vector dimensions mismatch: ${vecA.length} vs ${vecB.length}`);
+  }
+  
+  if (vecA.length === 0) return 0;
+  
+  let dotProduct = 0;
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+  }
+  
+  return Math.max(-1, Math.min(1, dotProduct)); // Clamp to [-1, 1]
+}
+
+/**
+ * Optimized batch cosine similarity calculation
+ * Uses vectorized operations for better performance
  */
 export function batchCosineSimilarity(
   sourceVec: Float64Array,
@@ -284,7 +326,48 @@ export function batchCosineSimilarity(
     throw new Error('Invalid target vectors array');
   }
   
-  return targetVecs.map(targetVec => cosineSimilarity(sourceVec, targetVec));
+  if (targetVecs.length === 0) return [];
+  
+  const results = new Array(targetVecs.length);
+  const sourceLength = sourceVec.length;
+  
+  // Pre-calculate source vector norm once
+  let sourceNorm = 0;
+  for (let i = 0; i < sourceLength; i++) {
+    sourceNorm += sourceVec[i] * sourceVec[i];
+  }
+  sourceNorm = Math.sqrt(sourceNorm);
+  
+  // Process all target vectors
+  for (let v = 0; v < targetVecs.length; v++) {
+    const targetVec = targetVecs[v];
+    
+    if (!targetVec || !(targetVec instanceof Float64Array) || targetVec.length !== sourceLength) {
+      results[v] = 0;
+      continue;
+    }
+    
+    // Calculate dot product and target norm in single pass
+    let dotProduct = 0;
+    let targetNorm = 0;
+    
+    for (let i = 0; i < sourceLength; i++) {
+      const sourceVal = sourceVec[i];
+      const targetVal = targetVec[i];
+      dotProduct += sourceVal * targetVal;
+      targetNorm += targetVal * targetVal;
+    }
+    
+    // Calculate cosine similarity
+    const magnitude = sourceNorm * Math.sqrt(targetNorm);
+    if (magnitude === 0) {
+      results[v] = 0;
+    } else {
+      results[v] = Math.max(-1, Math.min(1, dotProduct / magnitude));
+    }
+  }
+  
+  return results;
 }
 
 /**

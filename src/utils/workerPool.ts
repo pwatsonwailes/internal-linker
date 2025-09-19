@@ -16,7 +16,9 @@ export class WorkerPool {
     private workerOptions?: WorkerOptions;
 
     constructor(workerScriptUrl: string | URL, numWorkers?: number, workerOptions?: WorkerOptions) {
-        const maxWorkers = numWorkers || navigator.hardwareConcurrency || 4;
+        // Optimize worker count based on CPU cores and task type
+        const cpuCores = navigator.hardwareConcurrency || 4;
+        const maxWorkers = numWorkers || Math.min(cpuCores * 2, 16); // Use 2x CPU cores, max 16
         this.shuttingDown = false;
         this.workerScriptUrl = workerScriptUrl;
         this.workerOptions = workerOptions;
