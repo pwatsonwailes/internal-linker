@@ -21,7 +21,9 @@ import {
     createTargetUrlList,
     batchGetSimilarityResults,
     storeSimilarityResult,
-    markSourceUrlProcessed
+    markSourceUrlProcessed,
+    clearSourceUrlProcessingStatus,
+    supabase
 } from './lib/supabase';
 
 interface PrecomputedTargetData {
@@ -368,6 +370,24 @@ export default function App() {
             });
             setResults(prev => [...prev, ...initialResults]);
             addLog(`Added ${initialResults.length} results from cache.`);
+            
+            // Clear processing status for URLs that have no similarity results
+            const urlsWithNoResults = urlsAlreadyProcessed.filter(url => {
+                const matches = cachedDbResults.get(url);
+                return !matches || matches.length === 0;
+            });
+            
+            if (urlsWithNoResults.length > 0) {
+                addLog(`Clearing processing status for ${urlsWithNoResults.length} URLs with no similarity results...`);
+                for (const url of urlsWithNoResults) {
+                    try {
+                        await clearSourceUrlProcessingStatus(url, targetListId);
+                    } catch (error: any) {
+                        addLog(`Error clearing processing status for ${url}: ${error.message}`, 'error');
+                    }
+                }
+                addLog(`Cleared processing status for ${urlsWithNoResults.length} URLs. They will be reprocessed.`);
+            }
         } catch (error: any) {
             addLog(`Error fetching cached results: ${error.message}`, 'error');
         }
@@ -442,8 +462,54 @@ export default function App() {
             if (response?.result) {
                 addLog(`Task ${taskId.substring(0,10)} completed successfully. Matches found: ${response.result.matches.length}`, 'success');
                 setResults(prev => [...prev, response.result]);
+                
+                // Store similarity results in database if there are matches
+                if (response.result.matches.length > 0 && response.result.shouldMarkProcessed) {
+                    try {
+                        // Get source URL ID
+                        const sourceUrlData = await supabase
+                            .from('urls')
+                            .select('id')
+                            .eq('url', response.result.sourceUrl)
+                            .maybeSingle();
+                        
+                        if (sourceUrlData?.data?.id) {
+                            const sourceUrlId = sourceUrlData.data.id;
+                            
+                            // Store each match
+                            for (const match of response.result.matches) {
+                                // Get target URL ID
+                                const targetUrlData = await supabase
+                                    .from('urls')
+                                    .select('id')
+                                    .eq('url', match.url)
+                                    .maybeSingle();
+                                
+                                if (targetUrlData?.data?.id) {
+                                    await storeSimilarityResult(
+                                        sourceUrlId,
+                                        targetUrlData.data.id,
+                                        match.similarity,
+                                        match.suggestedAnchor
+                                    );
+                                }
+                            }
+                            
+                            // Mark source URL as processed
+                            await markSourceUrlProcessed(response.result.sourceUrl, targetListId);
+                            addLog(`Stored ${response.result.matches.length} similarity results for ${response.result.sourceUrl}`, 'success');
+                        }
+                    } catch (error: any) {
+                        addLog(`Error storing similarity results: ${error.message}`, 'error');
+                    }
+                }
             } else {
                  addLog(`Task ${taskId.substring(0,10)} completed with no significant matches.`);
+                 
+                 // If no matches found, don't mark as processed so it can be retried later
+                 if (response?.result?.shouldMarkProcessed === false) {
+                     addLog(`Not marking ${response.result.sourceUrl} as processed due to no matches`);
+                 }
             }
              setTasksCompleted(prev => prev + 1);
         }).catch(error => {

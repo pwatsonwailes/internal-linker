@@ -367,6 +367,16 @@ export async function markSourceUrlProcessed(sourceUrl: string, targetListId: st
   if (error) throw error;
 }
 
+export async function clearSourceUrlProcessingStatus(sourceUrl: string, targetListId: string) {
+  const { error } = await supabase
+    .from('source_url_processing_status')
+    .delete()
+    .eq('source_url', sourceUrl)
+    .eq('target_list_id', targetListId);
+
+  if (error) throw error;
+}
+
 export async function hasProcessedSourceUrl(sourceUrl: string, targetUrls: string[]) {
   try {
     const targetListId = await getTargetUrlListId(targetUrls);
