@@ -6,6 +6,7 @@ import { SimilarityResult, ProcessedUrl, WorkerTask, WorkerResponse } from './ty
 import { ArrowRight, Loader2 } from 'lucide-react';
 import WorkerPool from './utils/workerPool';
 import { filterStopWordsForTopics } from './utils/stopwords';
+import { extractSimpleTopics as extractTopics } from './utils/topicExtraction';
 import { preprocessUrl, clearPreprocessingCache } from './workers/modules/preprocessing';
 import { processBatchInParallel } from './workers/modules/parallelProcessor';
 import { 
@@ -242,9 +243,8 @@ export default function App() {
 
   // Simple topic extraction function - using standardized version
   const extractSimpleTopics = (doc: string[]): string[] => {
-    // Import the standardized function synchronously
-    const { extractSimpleTopics: standardExtract } = require('./utils/topicExtraction');
-    return standardExtract(doc);
+    // Use the imported function from the top of the file
+    return extractTopics(doc);
   };
 
   // Main thread fallback processing function

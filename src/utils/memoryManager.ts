@@ -19,7 +19,7 @@ export function checkMemory(): boolean {
   return isMemoryOK;
 }
 
-export function clearMemory(): void {
+export async function clearMemory(): Promise<void> {
   const heapSize = performance?.memory?.usedJSHeapSize;
   const heapLimit = performance?.memory?.jsHeapSizeLimit;
   
@@ -28,22 +28,24 @@ export function clearMemory(): void {
     globalThis.gc?.();
     
     // Clear module-level caches
-    clearModuleCaches();
+    await clearModuleCaches();
   }
 }
 
-function clearModuleCaches(): void {
+async function clearModuleCaches(): Promise<void> {
   // Clear any module-level caches that might be holding references
   try {
-    // Add cache clearing for specific modules
-    const modules = [
-      require('../utils/bloomFilter'),
-      require('../utils/invertedIndex'),
-      require('../utils/minHash'),
-      require('../utils/prefixIndex'),
-      require('../utils/topicModeling'),
-      require('./preprocessing')
+    // Add cache clearing for specific modules using dynamic imports
+    const modulePromises = [
+      import('../utils/bloomFilter'),
+      import('../utils/invertedIndex'),
+      import('../utils/minHash'),
+      import('../utils/prefixIndex'),
+      import('../utils/topicModeling'),
+      import('../workers/modules/preprocessing')
     ];
+
+    const modules = await Promise.all(modulePromises);
 
     modules.forEach(module => {
       if (typeof module.clearCache === 'function') {
