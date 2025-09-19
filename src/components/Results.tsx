@@ -106,13 +106,11 @@ export function Results({ results }: ResultsProps) {
   const exportToCSV = () => {
     const csvData = [];
     
-    // Add header row
+    // Add header row - limited to requested columns
     csvData.push([
       'Source URL',
-      'Source Title',
       'Match URL',
       'Similarity Score (%)',
-      'Suggested Anchor Text',
       'Match Topics',
       'Source Topics'
     ]);
@@ -126,8 +124,6 @@ export function Results({ results }: ResultsProps) {
         // Add row for URLs with no matches
         csvData.push([
           result.sourceUrl,
-          result.sourceTitle || '',
-          '',
           '',
           '',
           '',
@@ -138,10 +134,8 @@ export function Results({ results }: ResultsProps) {
           const matchTopics = match.topics || [];
           csvData.push([
             result.sourceUrl,
-            result.sourceTitle || '',
             match.url,
             (match.similarity * 100).toFixed(2),
-            match.suggestedAnchor,
             matchTopics.join('; '),
             topics.join('; ')
           ]);
