@@ -2,6 +2,9 @@ import { detectLanguage } from './languageDetection';
 // @ts-ignore - stopword package doesn't have type definitions
 import { removeStopwords, eng, fra, deu, spa, ita, por, jpn } from 'stopword';
 
+// Note: We're using manual filtering instead of removeStopwords function
+// due to browser compatibility issues with the stopword package
+
 // Map language codes to stopword package language arrays
 const languageStopwordMap = {
   en: eng,
@@ -36,8 +39,11 @@ export function filterStopWordsForTopics(doc: string[], minLength: number = 3): 
   // Get stopwords array for the detected language
   const stopwordsArray = getStopwordsForLanguage(lang);
   
-  // Use removeStopwords function to filter out stop words
-  const filteredWords = removeStopwords(doc, stopwordsArray);
+  // Manual stopwords filtering (more reliable than the package function)
+  const filteredWords = doc.filter(word => {
+    const lowerWord = word.toLowerCase();
+    return !stopwordsArray.includes(lowerWord);
+  });
   
   // Additional filtering for minimum length and valid terms
   return filteredWords.filter(term => 

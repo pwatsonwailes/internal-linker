@@ -83,6 +83,7 @@ export default function App() {
 
       // Apply stopwords filtering
       const filteredWords = filterStopWordsForTopics(words, 3);
+      
       setStopwordsTestResult(filteredWords);
       addLog(`Stopwords test completed: ${words.length} words → ${filteredWords.length} filtered words`, 'success');
     } catch (error) {
