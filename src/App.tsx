@@ -57,6 +57,9 @@ export default function App() {
   const [tasksCompleted, setTasksCompleted] = useState(0);
   const [totalTasks, setTotalTasks] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showStopwordsTest, setShowStopwordsTest] = useState(false);
+  const [stopwordsTestInput, setStopwordsTestInput] = useState('The quick brown fox jumps over the lazy dog');
+  const [stopwordsTestResult, setStopwordsTestResult] = useState<string[]>([]);
 
   const workerPoolRef = useRef<WorkerPool | null>(null);
   const precomputedDataRef = useRef<PrecomputedTargetData | null>(null);
@@ -66,6 +69,28 @@ export default function App() {
     console.log(`[${type.toUpperCase()}] ${message}`);
     setLogs(prev => [...prev, { message, timestamp: new Date(), type }]);
   }, []);
+
+  // Function to test stopwords filtering
+  const testStopwordsFiltering = useCallback(() => {
+    try {
+      // Split input into words and filter
+      const words = stopwordsTestInput.toLowerCase()
+        .replace(/[^\p{L}\s]/gu, '') // Keep only letters and spaces
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim()
+        .split(' ')
+        .filter(word => word.length >= 3); // Filter short words first
+
+      // Apply stopwords filtering
+      const filteredWords = filterStopWordsForTopics(words, 3);
+      setStopwordsTestResult(filteredWords);
+      addLog(`Stopwords test completed: ${words.length} words → ${filteredWords.length} filtered words`, 'success');
+    } catch (error) {
+      console.error('Stopwords test error:', error);
+      addLog(`Stopwords test error: ${error}`, 'error');
+      setStopwordsTestResult([]);
+    }
+  }, [stopwordsTestInput, addLog]);
 
   useEffect(() => {
     addLog('Initializing worker pool...');
@@ -604,6 +629,80 @@ export default function App() {
                 </div>
               )}
             </div>
+          </section>
+
+          {/* Stopwords Testing Section */}
+          <section className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">Stopwords Testing</h2>
+              <button
+                onClick={() => setShowStopwordsTest(!showStopwordsTest)}
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                {showStopwordsTest ? 'Hide' : 'Show'} Test
+              </button>
+            </div>
+            
+            {showStopwordsTest && (
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="stopwords-test-input" className="block text-sm font-medium text-gray-700 mb-2">
+                    Test Text:
+                  </label>
+                  <textarea
+                    id="stopwords-test-input"
+                    value={stopwordsTestInput}
+                    onChange={(e) => setStopwordsTestInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    rows={3}
+                    placeholder="Enter text to test stopwords filtering..."
+                  />
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={testStopwordsFiltering}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    Test Stopwords Filtering
+                  </button>
+                  <button
+                    onClick={() => setStopwordsTestInput('The quick brown fox jumps over the lazy dog')}
+                    className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  >
+                    Reset to Example
+                  </button>
+                </div>
+                
+                {stopwordsTestResult.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-700 mb-2">Filtered Result:</h3>
+                    <div className="bg-gray-50 p-3 rounded-md">
+                      <p className="text-sm text-gray-600 mb-2">
+                        <strong>{stopwordsTestResult.length}</strong> words remaining after filtering:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {stopwordsTestResult.map((word, index) => (
+                          <span
+                            key={index}
+                            className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
+                          >
+                            {word}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="text-xs text-gray-500">
+                  <p><strong>How it works:</strong> This tests the same stopwords filtering used in the similarity analysis.</p>
+                  <p>• Removes common stop words (the, and, of, etc.)</p>
+                  <p>• Filters out words shorter than 3 characters</p>
+                  <p>• Supports multiple languages with automatic detection</p>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* Processing Logs - shown during processing, hidden after completion */}
