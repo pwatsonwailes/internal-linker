@@ -1,29 +1,8 @@
 // Dynamic worker with error handling and fallbacks
-import { filterStopWordsForTopics } from '../utils/stopwords';
+import { extractSimpleTopics } from '../utils/topicExtraction';
 
 let similarityProcessor: any = null;
 let isInitialized = false;
-
-function extractSimpleTopics(doc: string[]): string[] {
-  if (!doc || doc.length === 0) return [];
-  
-  // Filter out stop words and short terms
-  const filteredTerms = filterStopWordsForTopics(doc, 3);
-  
-  // Count term frequencies
-  const termFreq = new Map<string, number>();
-  filteredTerms.forEach(term => {
-    termFreq.set(term, (termFreq.get(term) || 0) + 1);
-  });
-  
-  // Sort by frequency and take top terms
-  const sortedTerms = Array.from(termFreq.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5) // Take top 5 terms
-    .map(([term]) => term);
-  
-  return sortedTerms;
-}
 
 async function initializeWorker() {
   if (isInitialized) return;

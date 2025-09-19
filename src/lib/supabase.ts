@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { extractSimpleTopics } from '../utils/topicExtraction';
 import { Database } from '../types/supabase';
 import { filterStopWordsForTopics } from '../utils/stopwords';
 
@@ -29,26 +30,7 @@ async function withRetry<T>(
   }
 }
 
-function extractSimpleTopics(doc: string[]): string[] {
-  if (!doc || doc.length === 0) return [];
-  
-  // Filter out stop words and short terms
-  const filteredTerms = filterStopWordsForTopics(doc, 3);
-  
-  // Count term frequencies
-  const termFreq = new Map<string, number>();
-  filteredTerms.forEach(term => {
-    termFreq.set(term, (termFreq.get(term) || 0) + 1);
-  });
-  
-  // Sort by frequency and take top terms
-  const sortedTerms = Array.from(termFreq.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5) // Take top 5 terms
-    .map(([term]) => term);
-  
-  return sortedTerms;
-}
+// Using standardized topic extraction from utils/topicExtraction.ts
 
 function isRetryableError(error: any): boolean {
   if (!error) return false;
@@ -304,24 +286,62 @@ export async function getTargetUrlListId(urls: string[]) {
       return existingList.id;
     }
 
-    // Create new list
-    const { data: newList, error: insertError } = await supabase
-      .from('target_url_lists')
-      .insert({ urls: sortedUrls, hash })
-      .select('id')
-      .maybeSingle();
+    // Create new list with proper error handling for duplicates
+    try {
+      const { data: newList, error: insertError } = await supabase
+        .from('target_url_lists')
+        .insert({ urls: sortedUrls, hash })
+        .select('id')
+        .maybeSingle();
 
-    if (insertError) {
-      console.error('Error creating target URL list:', insertError);
-      throw insertError;
+      if (insertError) {
+        // Check if it's a duplicate key error
+        if (insertError.code === '23505') { // Unique constraint violation
+          console.log('Target list already exists, fetching existing one...');
+          // Try to fetch the existing list again
+          const { data: retryList, error: retryError } = await supabase
+            .from('target_url_lists')
+            .select('id')
+            .eq('hash', hash)
+            .maybeSingle();
+          
+          if (retryError || !retryList) {
+            throw new Error('Failed to fetch existing target list after duplicate error');
+          }
+          
+          console.log(`Using existing target list after duplicate detection: ${retryList.id}`);
+          return retryList.id;
+        }
+        
+        console.error('Error creating target URL list:', insertError);
+        throw insertError;
+      }
+      
+      if (!newList) {
+        throw new Error('Failed to create target URL list - no data returned');
+      }
+      
+      console.log(`Created new target list: ${newList.id}`);
+      return newList.id;
+    } catch (error) {
+      // If it's a duplicate error, try to fetch the existing one
+      if (error.code === '23505') {
+        const { data: existingList, error: fetchError } = await supabase
+          .from('target_url_lists')
+          .select('id')
+          .eq('hash', hash)
+          .maybeSingle();
+        
+        if (fetchError || !existingList) {
+          throw new Error('Failed to fetch existing target list after duplicate error');
+        }
+        
+        console.log(`Using existing target list after duplicate detection: ${existingList.id}`);
+        return existingList.id;
+      }
+      
+      throw error;
     }
-    
-    if (!newList) {
-      throw new Error('Failed to create target URL list - no data returned');
-    }
-    
-    console.log(`Created new target list: ${newList.id}`);
-    return newList.id;
   });
 }
 

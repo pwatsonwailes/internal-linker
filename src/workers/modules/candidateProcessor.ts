@@ -6,7 +6,8 @@ import {
     batchCosineSimilarity,
     clearVectorCache
 } from './vectorization';
-import { filterStopWordsForTopics, stopWords } from '../../utils/stopwords';
+import { extractSimpleTopics } from '../../utils/topicExtraction';
+import { stopWords } from '../../utils/stopwords';
 import { detectLanguage } from '../../utils/languageDetection'; 
 
 // Lowered threshold to catch more potential matches
@@ -48,26 +49,7 @@ function findSuggestedAnchor(sourceText: string, targetText: string): string {
   return phrases[0];
 }
 
-function extractSimpleTopics(doc: string[]): string[] {
-  if (!doc || doc.length === 0) return [];
-  
-  // Filter out stop words and short terms
-  const filteredTerms = filterStopWordsForTopics(doc, 3);
-  
-  // Count term frequencies
-  const termFreq = new Map<string, number>();
-  filteredTerms.forEach(term => {
-    termFreq.set(term, (termFreq.get(term) || 0) + 1);
-  });
-  
-  // Sort by frequency and take top terms
-  const sortedTerms = Array.from(termFreq.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5) // Take top 5 terms
-    .map(([term]) => term);
-  
-  return sortedTerms;
-}
+// Using standardized topic extraction from utils/topicExtraction.ts
 
 export async function processCandidates(
   source: ProcessedUrl,

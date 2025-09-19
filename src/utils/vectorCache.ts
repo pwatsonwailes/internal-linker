@@ -134,9 +134,21 @@ export const vectorCache = new VectorCache(1000, 100);
  * Generate a cache key for a document
  */
 export function generateVectorCacheKey(doc: string[], idfMap?: Map<string, number>): string {
-  const docHash = doc.join('|').slice(0, 100); // Use first 100 chars for performance
-  const idfHash = idfMap ? Array.from(idfMap.keys()).slice(0, 50).join('|') : '';
-  return `doc:${docHash}:idf:${idfHash}`;
+  // Create a more robust hash to prevent collisions
+  const docContent = doc.join('|');
+  const idfContent = idfMap ? Array.from(idfMap.keys()).sort().join('|') : '';
+  
+  // Use a simple hash function to create a shorter, collision-resistant key
+  let hash = 0;
+  const content = `${docContent}:${idfContent}`;
+  
+  for (let i = 0; i < content.length; i++) {
+    const char = content.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  return `vec:${Math.abs(hash).toString(36)}:${doc.length}:${idfMap?.size || 0}`;
 }
 
 /**
